@@ -1,5 +1,11 @@
 #pragma once
 
+// Small, deterministic decisions shared by the controller and unit tests.
+//
+// Keeping hit testing, gesture commits, workspace-strip geometry, and direct-
+// niri scale calculations here makes the behavior testable without loading the
+// plugin into Hyprland.
+
 #include <cstdint>
 #include <cstddef>
 #include <optional>
@@ -11,6 +17,7 @@
 
 namespace hymission {
 
+// Keyboard-navigation direction in overview coordinates.
 enum class Direction {
     Left,
     Right,
@@ -18,18 +25,21 @@ enum class Direction {
     Down,
 };
 
+// Decision returned when Hyprland reports a workspace change during overview.
 enum class OverviewWorkspaceChangeAction {
     Ignore,
     Rebuild,
     Abort,
 };
 
+// How an editing dispatcher interacts with an in-flight workspace transition.
 enum class OverviewEditTransitionAction {
     Run,
     Retarget,
     Defer,
 };
 
+// Workspace-strip placement and empty-workspace population policy.
 enum class WorkspaceStripAnchor {
     Top,
     Left,
@@ -67,6 +77,7 @@ struct WorkspaceStripReservation {
     Rect content;
 };
 
+// Preview selection and animation primitives.
 [[nodiscard]] std::optional<std::size_t> hitTest(const std::vector<Rect>& rects, double x, double y);
 [[nodiscard]] std::optional<std::size_t> chooseDirectionalNeighbor(const std::vector<Rect>& rects, std::size_t currentIndex, Direction direction);
 [[nodiscard]] std::optional<std::size_t> chooseCyclicIndex(std::size_t count, std::size_t currentIndex, int step = 1);
@@ -75,6 +86,8 @@ struct WorkspaceStripReservation {
 [[nodiscard]] int64_t                    authoritativeOverviewWorkspaceId(bool transitionActive, int64_t transitionTargetId, int64_t committedWorkspaceId);
 [[nodiscard]] double                     easeOutCubic(double t);
 [[nodiscard]] double                     easeInCubic(double t);
+
+// Input/session decisions. These functions encode policy without side effects.
 [[nodiscard]] bool                       shouldSyncOverviewLiveFocus(bool handlesInput, bool overviewFocusFollowsMouse, long inputFollowMouseBeforeOpen);
 [[nodiscard]] RecommandVisibleGestureMode resolveRecommandVisibleGestureMode(int currentScopeSign, int gestureDirectionSign);
 [[nodiscard]] bool                       resolveOverviewGestureCommit(bool opening, double openness, double lastAlignedSpeed, double speedThreshold, bool cancelled);
@@ -85,6 +98,8 @@ struct WorkspaceStripReservation {
                                                                                  bool liveFocusTriggeredWorkspaceChange, bool allowsWorkspaceSwitchInOverview);
 [[nodiscard]] OverviewEditTransitionAction resolveOverviewEditTransitionAction(bool workspaceTransitionActive, bool focusOrMovementDispatcher,
                                                                                 bool timedCommitTransition, bool niriSingleWorkspaceTransition);
+
+// Configuration parsing and scrolling-direction normalization.
 [[nodiscard]] WorkspaceStripAnchor parseWorkspaceStripAnchor(std::string_view value);
 [[nodiscard]] WorkspaceStripEmptyMode parseWorkspaceStripEmptyMode(std::string_view value);
 [[nodiscard]] std::optional<HymissionScrollMode> parseHymissionScrollMode(std::string_view value);
@@ -92,6 +107,8 @@ struct WorkspaceStripReservation {
 [[nodiscard]] GestureAxis              axisForScrollingLayoutDirection(ScrollingLayoutDirection direction);
 [[nodiscard]] bool                     scrollingLayoutGestureAxisMatches(ScrollingLayoutDirection direction, GestureAxis axis);
 [[nodiscard]] double                   scrollingLayoutMoveAmount(ScrollingLayoutDirection direction, double primaryDelta, double sensitivity);
+
+// Direct-niri projection and workspace-lane geometry.
 [[nodiscard]] double                   niriOverviewPreviewScale(const Rect& previewArea, const Rect& baseArea, double maxPreviewScale, double minSlotScale,
                                                                 std::optional<GestureAxis> overflowAxis = std::nullopt);
 [[nodiscard]] Rect                      centerAnchorOnWorkspaceStripAxis(const Rect& anchorRect, const Rect& focusRect, WorkspaceStripAnchor anchor);

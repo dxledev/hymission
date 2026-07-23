@@ -3,14 +3,14 @@
 `hymission` is a Hyprland plugin that provides a Mission Control-style overview with live compositor-side previews, scope-aware collection, trackpad gestures, and a workspace strip for active-workspace overview mode.
 
 > [!IMPORTANT]
-> This project is a fork to accomidate my own custom desktop environment. Use at your own discretion.
+> This project is a fork adapted for my custom desktop environment. Use it at your own discretion.
 
 > [!WARNING]
 > Hyprland plugins run inside the compositor process. Install plugins only from sources you trust.
 > `hymission` may not work correctly on NVIDIA GPUs/drivers.
 
 > [!WARNING]
-> This software is 99% vibe coded with OpenAI CodeX, but have been manual audited, warn in case you mind it.
+> This software was developed largely with OpenAI Codex assistance and has been manually audited. Keep that development context in mind when evaluating it.
 
 **Inspired By Apple Mission Control**
 
@@ -492,6 +492,8 @@ This keeps normal workspace names untouched outside overview. While overview is 
 
 ## Development
 
+For a current implementation walkthrough, including the direct-niri scrolling single-workspace architecture, complex-function explanations, and a catalog of every tracked file, see [`docs/codebase-guide.md`](docs/codebase-guide.md).
+
 Useful commands:
 
 ```sh
@@ -509,10 +511,11 @@ hyprctl dispatch hymission:debug_current_layout
 
 Project docs:
 
+- [`docs/codebase-guide.md`](docs/codebase-guide.md): current architecture, direct-niri deep dive, complex functions, and complete file catalog
 - [`docs/spec.md`](docs/spec.md): behavior and user-facing semantics
 - [`docs/architecture.md`](docs/architecture.md): controller, hooks, and state-machine structure
 - [`docs/research.md`](docs/research.md): layout tradeoffs and prior-art notes
-- [`docs/workspace_strip_plan.md`](docs/workspace_strip_plan.md): strip-specific implementation planning
+- [`docs/workspace_strip_plan.md`](docs/workspace_strip_plan.md): strip, cross-workspace window drag, and external DnD implementation notes
 - [`docs/todo.md`](docs/todo.md): current gaps and next steps
 - [`devlog/`](devlog): implementation notes for recent iterations
 

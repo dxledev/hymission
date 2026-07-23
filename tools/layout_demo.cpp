@@ -1,3 +1,8 @@
+// Standalone visual/debug harness for MissionControlLayout.
+//
+// It generates representative window scenes, runs the pure layout solver, and
+// emits human-inspectable output without loading Hyprland or the plugin.
+
 #include <algorithm>
 #include <array>
 #include <cmath>

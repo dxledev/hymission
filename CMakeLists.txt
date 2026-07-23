@@ -1,3 +1,5 @@
+# Primary build definition. Produces the Hyprland plugin plus standalone layout,
+# overview-logic, and drag-logic verification tools.
 cmake_minimum_required(VERSION 3.19)
 project(hymission VERSION "0.3.3")
 

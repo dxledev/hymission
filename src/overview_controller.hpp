@@ -1,5 +1,13 @@
 #pragma once
 
+// Runtime coordinator for the Hymission plugin.
+//
+// OverviewController owns one overview session from activation through cleanup:
+// it collects compositor objects, projects them into preview geometry, installs
+// render/input hooks, coordinates gestures and edits, and restores borrowed
+// Hyprland state. Direct-niri code is split across dedicated translation units,
+// but uses the state and private interface declared here.
+
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -50,8 +58,15 @@ namespace hymission {
 class OverviewOverlayPassElement;
 class OverviewWallpaperPassElement;
 
+// Stateful boundary between Hyprland and the pure layout/decision modules.
+//
+// Geometry ownership is intentionally asymmetric: Hyprland remains authoritative
+// for real windows and scrolling columns; this controller owns only their
+// overview representation, animation, selection, and temporary render state.
 class OverviewController {
   public:
+    // Classifies compositor window events so rebuilds can preserve the right
+    // selection and animation behavior.
     enum class WindowSetChangeKind {
         General,
         Open,
@@ -72,12 +87,15 @@ class OverviewController {
 
     bool initialize();
 
+    // User-facing dispatchers registered by main.cpp.
     [[nodiscard]] SDispatchResult open(const std::string& args = {});
     [[nodiscard]] SDispatchResult close();
     [[nodiscard]] SDispatchResult toggle(const std::string& args = {});
     [[nodiscard]] SDispatchResult debugCurrentLayout() const;
     [[nodiscard]] bool            allowsWorkspaceSwitchInOverviewForGestures() const;
     [[nodiscard]] bool            blocksWorkspaceSwitchInOverviewForGestures() const;
+
+    // Continuous workspace and scrolling gestures.
     [[nodiscard]] bool            beginOverviewWorkspaceSwipeGesture(eTrackpadGestureDirection direction);
     void                          updateOverviewWorkspaceSwipeGesture(double delta);
     void                          setOverviewWorkspaceSwipeGestureDelta(double delta);
@@ -88,6 +106,8 @@ class OverviewController {
     void                          endScrollGesture(bool cancelled);
     void                          refreshAfterOfficialScrollMove(const char* source);
 
+    // Compositor event and render-hook entry points. These are public because
+    // Hyprland callbacks call them; they are not an independent consumer API.
     void renderStage(eRenderStage stage);
     void handleConfigReloaded();
     bool handleMouseMove();
@@ -123,6 +143,8 @@ class OverviewController {
     CRegion             surfaceOpaqueRegionHook(void* surfacePassThisptr);
     CRegion             surfaceVisibleRegionHook(void* surfacePassThisptr, bool& cancel);
     std::optional<std::string> handleGestureConfigHook(const std::string& keyword, const std::string& value);
+
+    // Trackpad/touch adapters translate Hyprland events into controller sessions.
     [[nodiscard]] bool         beginTrackpadGesture(bool openOnly, ScopeOverride requestedScope, bool recommand, eTrackpadGestureDirection direction,
                                                     const IPointer::SSwipeUpdateEvent& event, float deltaScale);
     void                       updateTrackpadGesture(const IPointer::SSwipeUpdateEvent& event);
@@ -143,6 +165,8 @@ class OverviewController {
     friend class OverviewOverlayPassElement;
     friend class OverviewWallpaperPassElement;
 
+    // High-level overview lifecycle. ClosingSettle waits for native scrolling or
+    // fullscreen geometry to become a safe starting point for the close animation.
     enum class Phase {
         Inactive,
         Opening,
@@ -170,6 +194,7 @@ class OverviewController {
         bool          includeSpecial = false;
     };
 
+    // Captures fullscreen state temporarily suppressed for overview rendering.
     struct FullscreenWorkspaceBackup {
         PHLWORKSPACE    workspace;
         PHLWINDOW       originalFullscreenWindow;
@@ -178,6 +203,8 @@ class OverviewController {
         eFullscreenMode originalFullscreenMode = FSMODE_NONE;
     };
 
+    // One live Hyprland window plus every rectangle needed to render it across
+    // opening, relayout, workspace transition, and closing animations.
     struct ManagedWindow {
         PHLWINDOW    window;
         PHLMONITOR   targetMonitor;
@@ -193,6 +220,8 @@ class OverviewController {
         bool         isNiriFloatingOverlay = false;
     };
 
+    // Navigation thumbnail. Snapshot is the captured workspace framebuffer;
+    // WindowPreview is the fallback metadata used when a live capture is rebuilt.
     struct WorkspaceStripEntry {
         struct Snapshot {
             SP<Render::IFramebuffer> framebuffer;
@@ -220,6 +249,8 @@ class OverviewController {
         bool                     active = false;
     };
 
+    // A renderable lane for an empty workspace. In direct-niri mode a backing-only
+    // placeholder also supplies the viewport behind non-empty workspace windows.
     struct EmptyWorkspacePlaceholder {
         PHLMONITOR  monitor;
         PHLWORKSPACE workspace;
@@ -231,6 +262,8 @@ class OverviewController {
         bool        backingOnly = false;
     };
 
+    // Frozen scene resources used while wallpaper and layer surfaces are hidden
+    // from their normal Hyprland render stage.
     struct NiriWallpaperSnapshot {
         PHLMONITOR               monitor;
         PHLLS                    layer;
@@ -244,6 +277,8 @@ class OverviewController {
         bool      changeLogged = false;
     };
 
+    // Internal window-drag state. The pure overview_drag module computes the
+    // insertion record; this session tracks compositor ownership and timing.
     struct NiriDragTarget {
         PHLWORKSPACE                workspace;
         PHLMONITOR                  monitor;
@@ -270,6 +305,8 @@ class OverviewController {
         double                                edgeVelocity = 0.0;
     };
 
+    // External Wayland data-device drag state, kept separate from window drag
+    // because protocol focus and hover activation have different commit rules.
     struct NiriDndSession {
         bool                                  active = false;
         PHLWINDOWREF                          holdWindow;
@@ -297,6 +334,9 @@ class OverviewController {
         bool         hasLane = false;
     };
 
+    // Complete renderable overview scene. Workspace transitions retain both a
+    // source and target State, so this object must be a self-contained snapshot
+    // rather than a thin view of current compositor state.
     struct State {
         Phase                                  phase = Phase::Inactive;
         PHLMONITOR                             ownerMonitor;
@@ -337,6 +377,8 @@ class OverviewController {
 
     using PreviewRectSnapshot = std::vector<std::pair<PHLWINDOW, Rect>>;
 
+    // Camera synchronization distinguishes an explicit focus change from edits
+    // that must preserve the native scrolling viewport.
     enum class ScrollingSpotTargeting {
         Configured,
         Center,
@@ -369,6 +411,8 @@ class OverviewController {
         double scaleY = 1.0;
     };
 
+    // Overview open/close gesture state. `recommand` can cross a hidden gap into
+    // the opposite scope, hence both openness and signed progress are retained.
     struct GestureRegistration {
         std::size_t               fingerCount = 0;
         eTrackpadGestureDirection direction = TRACKPAD_GESTURE_DIR_NONE;
@@ -411,6 +455,8 @@ class OverviewController {
         bool                      restoreScrollingFollowFocus = false;
     };
 
+    // Workspace switches are rendered as two simultaneous scene snapshots. The
+    // real Hyprland workspace is committed only at the controlled handoff.
     struct WorkspaceNameBackup {
         PHLWORKSPACE workspace;
         std::string  name;

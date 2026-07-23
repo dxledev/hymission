@@ -1,3 +1,5 @@
+// Regression tests for direct-niri insertion targets and edge scrolling.
+
 #include "overview_drag_logic.hpp"
 
 #include <cmath>

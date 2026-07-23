@@ -1,3 +1,9 @@
+// Implements pure overview decisions and geometry transformations.
+//
+// Nothing here reads compositor state. Keeping these functions deterministic
+// makes gesture policy, workspace-strip layout, and direct-niri scaling cheap to
+// test in tools/overview_logic_test.cpp.
+
 #include "overview_logic.hpp"
 
 #include <algorithm>
@@ -6,9 +12,11 @@
 #include <limits>
 #include <string_view>
 
-namespace hymission {
+namespace hymission
+{
 
-namespace {
+namespace
+{
 
 double clampUnit(double value) {
     return std::clamp(value, 0.0, 1.0);

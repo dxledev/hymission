@@ -1,3 +1,4 @@
+# Hyprpm repository metadata and the CMake commands used to build the plugin.
 [repository]
 name = "hymission"
 authors = ["wilf"]

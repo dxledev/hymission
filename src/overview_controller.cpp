@@ -1,3 +1,10 @@
+// General overview runtime: lifecycle, hooks, normal overview rendering,
+// workspace transitions, input, workspace strip, and compositor integration.
+//
+// Direct-niri scrolling geometry and edit adaptation live in the sibling
+// overview_controller_niri_*.cpp files. All of them operate on the controller
+// state declared in overview_controller.hpp.
+
 #include "overview_controller.hpp"
 #include "overview_controller_niri_scrolling.hpp"
 
@@ -7831,6 +7838,11 @@ OverviewController::State OverviewController::captureOverviewWorkspaceTransition
     return source;
 }
 
+// Builds the target scene without discarding the source scene currently on
+// screen. Any active relayout is first frozen at its visible frame, preventing a
+// new workspace transition from jumping back to an earlier animation endpoint.
+// Rendering owns both snapshots until commitOverviewWorkspaceTransition()
+// activates the real Hyprland workspace and installs the target State.
 bool OverviewController::beginOverviewWorkspaceTransition(const PHLMONITOR& monitor, WORKSPACEID workspaceId, std::string workspaceName, PHLWORKSPACE workspace,
                                                          bool syntheticEmpty, WorkspaceTransitionMode mode, std::optional<State> sourceStateOverride,
                                                          PHLWINDOW preferredTargetFocus) {
@@ -8471,6 +8483,13 @@ bool OverviewController::activateTimedNiriWorkspaceTransitionTarget() {
     return true;
 }
 
+// Performs the visual-to-native handoff for a workspace transition.
+//
+// The ordering matters: preserve the currently visible placeholder/window
+// origins, activate or resolve the target workspace, rebuild authoritative live
+// geometry, then restore focus/camera and retarget any remaining animation.
+// Committing native state earlier would expose Hyprland's normal workspace
+// animation between the two overview scenes.
 void OverviewController::commitOverviewWorkspaceTransition(bool followGesture, bool forceSync) {
     if (!m_workspaceTransition.active || !m_workspaceTransition.monitor)
         return;
@@ -14469,6 +14488,13 @@ void OverviewController::refreshVisibleStateMetadata(PHLWINDOW preferredSelected
     damageOwnedMonitors();
 }
 
+// Re-collects a visible scene while preserving lifecycle state and the current
+// visual rectangles. This differs from refreshVisibleStateMetadata(): rebuild is
+// for membership or layout changes and may replace every ManagedWindow record;
+// metadata refresh is for cheaper updates when membership is stable.
+//
+// `forceRelayout` samples live direct-niri geometry because cached preview
+// targets may describe the pre-edit scrolling arrangement.
 void OverviewController::rebuildVisibleState(PHLWINDOW preferredSelectedWindow, bool forceRelayout) {
     if (!isVisible() || !m_state.ownerMonitor || !m_state.ownerWorkspace)
         return;
@@ -15981,6 +16007,13 @@ Rect OverviewController::workspaceStripThumbRect(const WorkspaceStripEntry& entr
 }
 
 void OverviewController::renderWorkspaceStripSnapshot(WorkspaceStripEntry& entry) {
+    // Snapshot rendering temporarily borrows Hyprland's render state and draws
+    // an inactive workspace into a private framebuffer. The old framebuffer is
+    // retained until replacement succeeds because direct-niri workspaces are not
+    // always renderable on every frame.
+    //
+    // Treat changes below as a transaction: save monitor/workspace/render flags,
+    // render the isolated scene, and restore every borrowed value on all exits.
     // Keep the existing snapshot alive until a replacement is successfully
     // rendered.  In direct niri mode Hyprland may report only the active
     // workspace as renderable while the overview is open; clearing here makes
