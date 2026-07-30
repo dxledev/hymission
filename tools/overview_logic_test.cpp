@@ -1,3 +1,6 @@
+// Regression tests for overview input policy, gestures, strip geometry, and
+// direct-niri projection helpers.
+
 #include <cstdlib>
 #include <cmath>
 #include <iostream>

@@ -1,3 +1,5 @@
+# Thin Bash-oriented wrapper around the CMake workflow. Hyprpm targets default
+# to DRY_RUN=1 because updating can live-reload the plugin inside Hyprland.
 SHELL := /usr/bin/bash
 .SHELLFLAGS := -euo pipefail -c
 

@@ -1,3 +1,9 @@
+// Mouse resize adapter for windows shown in direct-niri overview.
+//
+// Hyprland's drag controller still performs the real resize. This module maps
+// overview pointer motion back to native geometry while preserving the scrolling
+// camera and the user's existing focus, including adjacent non-centered tiles.
+
 #include <any>
 #include <sstream>
 

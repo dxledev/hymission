@@ -1,3 +1,10 @@
+// Direct-niri single-workspace scrolling overview.
+//
+// This file projects Hyprland's live CScrollingAlgorithm into zoomed workspace
+// lanes, arbitrates per-frame preview geometry, preserves focus/camera semantics,
+// adapts editing dispatchers, and renders wallpaper-backed lane surfaces.
+// Hyprland remains authoritative for actual columns, tiles, and window geometry.
+
 #include "overview_controller_niri_scrolling.hpp"
 
 #include <algorithm>
@@ -5454,6 +5461,12 @@ std::optional<SDispatchResult> OverviewController::tryRunDirectNiriMoveToWorkspa
     return result;
 }
 
+// Adapts native Hyprland editing dispatchers while direct-niri overview is
+// visible. The function classifies the command, decides whether an active
+// workspace transition must run, retarget, or defer, captures current preview
+// origins, invokes the original dispatcher, and finally rebuilds from Hyprland's
+// authoritative result. Command-specific branches exist because focus, column
+// camera, floating state, and workspace ownership settle at different times.
 SDispatchResult OverviewController::runOverviewEditingDispatcher(const char* dispatcherName, DispatcherHandler* original, std::string args) {
     if (!original || !*original)
         return {};
@@ -7448,6 +7461,13 @@ bool OverviewController::removeOccupiedWorkspacePlaceholder(State& state, const 
     return state.emptyWorkspacePlaceholders.size() != previousSize;
 }
 
+// Central per-frame geometry arbiter.
+//
+// Priority is intentional: workspace transition, interactive gesture, active
+// relayout, guarded live direct-niri geometry, floating projection, then ordinary
+// lifecycle interpolation. Returning goal geometry too early causes snap-back;
+// returning live geometry during a protected transition causes one-frame flashes
+// from the old workspace.
 Rect OverviewController::currentPreviewRect(const ManagedWindow& window) const {
     if (m_workspaceTransition.active) {
         if (const auto rect = workspaceTransitionRectForWindow(window.window); rect)
@@ -8935,6 +8955,18 @@ void OverviewController::buildWorkspaceStripEntries(State& state) const {
         debugLog(out.str());
     }
 }
+// Constructs a complete scene snapshot from current Hyprland state.
+//
+// Broad phases inside this function are:
+//   1. resolve collection policy, owner monitor/workspace, and overrides;
+//   2. enumerate participating monitors, workspaces, and eligible windows;
+//   3. choose normal layout or project live direct-niri scrolling lanes;
+//   4. add floating overlays, empty/backing placeholders, and strip entries;
+//   5. restore stable ordering and choose selection/focus.
+//
+// It is large because it is the join point between compositor objects and the
+// self-contained State snapshot; geometry calculations remain delegated to
+// smaller helpers.
 OverviewController::State OverviewController::buildState(const PHLMONITOR& monitor, ScopeOverride requestedScope, const std::vector<WorkspaceOverride>& workspaceOverrides,
                                                          bool keepEmptyParticipatingMonitors, bool suppressWorkspaceStrip,
                                                          PHLWINDOW preferredSelectedWindow, bool refreshLayoutSnapshots) const {

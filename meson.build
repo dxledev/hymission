@@ -1,3 +1,5 @@
+# Alternate plugin build retained for Hyprland plugin tooling. CMake is the
+# repository's primary development/test path and also builds the helper tools.
 project('hymission', 'cpp',
   version: '0.3.2',
   default_options: ['buildtype=release'],

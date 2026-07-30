@@ -1,3 +1,9 @@
+// Direct-niri window dragging and overview editing integration.
+//
+// The drag session temporarily detaches a real Hyprland window, projects pointer
+// movement into an insertion target, applies the drop through the scrolling
+// layout, and rebuilds from the resulting compositor state.
+
 #include "overview_controller.hpp"
 #include "overview_controller_niri_scrolling.hpp"
 
@@ -955,6 +961,11 @@ void OverviewController::tickDirectNiriWindowDragEdgeScroll() {
     damageOwnedMonitors();
 }
 
+// Commits a window drag without allowing transient Hyprland focus/workspace
+// side effects to redefine the overview owner. It creates a synthetic target
+// workspace if needed, applies floating or tiled placement, repairs scrolling
+// membership, restores valid focus owners, and starts relayout from the release
+// rectangle so the dropped window never snaps back to its pre-drag preview.
 bool OverviewController::applyDirectNiriDragTarget(const PHLWINDOW &window, const NiriDragTarget &target, const PreviewRectSnapshot &previousPreviewRects,
                                                    const Rect &releasePreviewRect) {
     if (!window || !target.monitor || target.workspaceId == WORKSPACE_INVALID)

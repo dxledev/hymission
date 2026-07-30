@@ -1,3 +1,9 @@
+// Implements direct-niri drop-target and edge-scroll geometry.
+//
+// Pointer coordinates are interpreted in the projected workspace viewport; the
+// caller is responsible for converting the result back into a Hyprland layout
+// operation.
+
 #include "overview_drag_logic.hpp"
 
 #include <algorithm>

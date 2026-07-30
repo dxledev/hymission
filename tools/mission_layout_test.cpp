@@ -1,3 +1,5 @@
+// Regression tests for the pure grid and natural layout engines.
+
 #include <cmath>
 #include <cstdlib>
 #include <iostream>

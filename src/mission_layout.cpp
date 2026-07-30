@@ -1,3 +1,9 @@
+// Implements compositor-independent Mission Control placement.
+//
+// The grid path searches row arrangements and scores readability versus space
+// use. The natural path starts near original window centers, resolves overlaps,
+// and evaluates several relaxation profiles before returning stable slots.
+
 #include "mission_layout.hpp"
 
 #include <algorithm>
@@ -1607,6 +1613,10 @@ std::optional<std::vector<WindowSlot>> computeNaturalRowGroupLayout(const std::v
 
 } // namespace
 
+// The public solver is intentionally a policy router. Preparation normalizes
+// pathological sizes once, then the requested engine gets the same inputs.
+// Natural layout may fail when constraints cannot be satisfied; falling back to
+// grid guarantees that every valid input still receives a slot.
 std::vector<WindowSlot> MissionControlLayout::compute(const std::vector<WindowInput>& windows, const Rect& area, const LayoutConfig& config) const {
     if (windows.empty())
         return {};

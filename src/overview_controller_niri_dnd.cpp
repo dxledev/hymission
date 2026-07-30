@@ -1,3 +1,9 @@
+// Wayland data-device drag-and-drop support inside direct-niri overview.
+//
+// This state machine maintains protocol surface focus while adding overview-only
+// hover activation, scrolling-tape edge motion, and delayed workspace switching.
+// It does not move Hymission windows; that path lives in the drag module.
+
 #include "overview_controller.hpp"
 
 #include <algorithm>

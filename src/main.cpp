@@ -1,3 +1,9 @@
+// Hyprland plugin entry point and configuration registry.
+//
+// This file creates the single OverviewController, exposes native and Lua
+// dispatchers, registers every user-facing option, and tears the controller down
+// when Hyprland unloads the plugin. Runtime behavior belongs in controller files.
+
 #include <memory>
 #include <sstream>
 #include <string>
