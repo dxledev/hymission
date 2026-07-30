@@ -1,21 +1,28 @@
 # hymission
 
-`hymission` is a Hyprland plugin that provides a Mission Control-style overview with live compositor-side previews, scope-aware collection, trackpad gestures, and a workspace strip for active-workspace overview mode.
+`hymission` is a fork of [gfhdhytghd/hymission](https://github.com/gfhdhytghd/hymission) that preserves the original Mission Control-style overview and adds a substantial niri-inspired overview for Hyprland's scrolling layout.
 
 > [!IMPORTANT]
-> This project is a fork adapted for my custom desktop environment. Use it at your own discretion.
+> This is not a from-scratch plugin. The original Mission Control overview, core plugin architecture, and non-scrolling overview behavior come from upstream Hymission. My primary contribution is the scrolling-layout overview mode and its integration with the existing codebase. I have also made smaller fixes and adjustments to the inherited overview modes.
 
 > [!WARNING]
 > Hyprland plugins run inside the compositor process. Install plugins only from sources you trust.
 > `hymission` may not work correctly on NVIDIA GPUs/drivers.
 
 > [!WARNING]
-> This software was developed largely with OpenAI Codex assistance and has been manually audited. Keep that development context in mind when evaluating it.
+> The fork was developed largely with OpenAI Codex assistance and has been manually audited. The Scrolling Overview that I worked on was largely manually developed and audited by me. Keep that development context in mind when evaluating it.
 
-**Inspired By Apple Mission Control**
+## Work added in this fork
 
-**Referenced [hyprexpo](https://github.com/hyprwm/hyprland-plugins/tree/main/hyprexpo), [hycov](https://github.com/ernestoCruz05/hycov), and [Hyprspace](https://github.com/KZDKM/Hyprspace).**
-## Features
+- Implemented a direct, niri-inspired overview for Hyprland's scrolling layout using the live layout geometry instead of a separate replacement layout.
+- Added animated overview entry and exit, column-aware focus and navigation, configurable center/fit behavior, dynamic relayout, and animated workspace-to-workspace transitions.
+- Built a unified multi-workspace scrolling scene with visible neighboring workspace lanes, optional empty workspaces, configurable gaps and scaling, and per-workspace wallpaper viewport zoom.
+- Added niri-style window dragging with insertion targets, source-column reflow, cross-workspace placement, edge scrolling, and cancellation that restores the original position.
+- Added external Wayland drag-and-drop support so files can activate overview windows or workspaces, including scrolling-lane and workspace-edge navigation.
+- Integrated the scrolling mode with the existing Hymission configuration, gesture, dispatcher, rendering, and state-management systems.
+- Made smaller fixes and behavioral adjustments to the inherited non-scrolling overview modes.
+
+## Upstream Hymission features retained
 
 - Mission Control-style overview with animated window previews
 - Scope control with default config scope, `onlycurrentworkspace`, and `forceall`
@@ -24,14 +31,11 @@
 - Gesture-only `recommand` mode for two-sided `toggle` gestures
 - Workspace strip when the current overview scope shows only the active workspace
 - Multi-monitor support
-- Pinned-window, special-workspace, and scrolling-layout aware behavior
-- Workspace-to-workspace overview transitions without showing the native workspace animation in the middle
+- Pinned-window and special-workspace-aware behavior
 
-
+## Demo
 
 https://github.com/user-attachments/assets/d3e7625f-a831-474a-ac85-02dca635beda
-
-
 
 
 ## Installation
@@ -42,7 +46,7 @@ https://github.com/user-attachments/assets/d3e7625f-a831-474a-ac85-02dca635beda
 
 ```sh
 hyprpm update
-hyprpm add https://github.com/gfhdhytghd/hymission
+hyprpm add https://github.com/dxledev/hymission
 hyprpm enable hymission
 hyprpm reload
 ```
@@ -518,6 +522,14 @@ Project docs:
 - [`docs/workspace_strip_plan.md`](docs/workspace_strip_plan.md): strip, cross-workspace window drag, and external DnD implementation notes
 - [`docs/todo.md`](docs/todo.md): current gaps and next steps
 - [`devlog/`](devlog): implementation notes for recent iterations
+
+## Credits and attribution
+
+This repository is based on [gfhdhytghd/hymission](https://github.com/gfhdhytghd/hymission). Credit for the original Mission Control overview, foundational plugin architecture, and inherited non-scrolling behavior belongs to the upstream project and its contributors.
+
+My primary contribution is the scrolling-layout overview mode and the related animation, navigation, workspace-lane, wallpaper-viewport, window-dragging, and external drag-and-drop integration described above.
+
+The project is inspired by Apple Mission Control and references ideas or prior work from [hyprexpo](https://github.com/hyprwm/hyprland-plugins/tree/main/hyprexpo), [hycov](https://github.com/ernestoCruz05/hycov), and [Hyprspace](https://github.com/KZDKM/Hyprspace).
 
 ## Notes
 
