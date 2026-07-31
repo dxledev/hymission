@@ -1,3 +1,9 @@
 build/
 build-meson/
 build-cmake/
+.codex
+.AGENTS.md
+debug.
+wallpaper_zoom_plan.md
+.antigravitycli
+.hermes/
