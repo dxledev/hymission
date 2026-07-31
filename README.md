@@ -33,7 +33,10 @@
 - Multi-monitor support
 - Pinned-window and special-workspace-aware behavior
 
-## Demo
+## Scrolling Overview Demo
+
+
+## Non-scrolling Overview Demo
 
 https://github.com/user-attachments/assets/d3e7625f-a831-474a-ac85-02dca635beda
 
