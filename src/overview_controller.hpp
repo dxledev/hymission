@@ -21,6 +21,8 @@
 #include <utility>
 #include <vector>
 
+#include "hyprland_compat.hpp"
+
 #include <hyprland/src/SharedDefs.hpp>
 #include <hyprland/src/config/shared/actions/ConfigActions.hpp>
 #include <hyprland/src/desktop/DesktopTypes.hpp>

@@ -22,7 +22,11 @@
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
+#if HYM_HYPRLAND_0_56
+#include <hyprland/src/pointer/cursor/CursorShapeOverrideController.hpp>
+#else
 #include <hyprland/src/managers/cursor/CursorShapeOverrideController.hpp>
+#endif
 #include <hyprland/src/managers/input/InputManager.hpp>
 
 namespace hymission {
@@ -181,10 +185,10 @@ void OverviewController::logDirectNiriMouseResizeGeometry(const PHLWINDOW& windo
 
     const Rect preview = currentPreviewRect(*managed);
     const CBox layoutBox = target->position();
-    const Vector2D livePosition = window->m_realPosition->value();
-    const Vector2D liveSize = window->m_realSize->value();
-    const Vector2D goalPosition = window->m_realPosition->goal();
-    const Vector2D goalSize = window->m_realSize->goal();
+    const Vector2D livePosition = hyprland_compat::windowPositionAnimation(window)->value();
+    const Vector2D liveSize = hyprland_compat::windowSizeAnimation(window)->value();
+    const Vector2D goalPosition = hyprland_compat::windowPositionAnimation(window)->goal();
+    const Vector2D goalSize = hyprland_compat::windowSizeAnimation(window)->goal();
     const Vector2D reportedSize = window->getReportedSize();
     const auto root = window->wlSurface() ? window->wlSurface()->resource() : nullptr;
     const Vector2D bufferSize = root ? root->m_current.size : Vector2D{};
@@ -208,7 +212,7 @@ void OverviewController::logDirectNiriMouseResizeGeometry(const PHLWINDOW& windo
 std::optional<std::pair<PHLWINDOW, Rect>> OverviewController::directNiriMouseResizeTargetAtPointer() const {
     const Vector2D pointer = g_pInputManager->getMouseCoordsInternal();
     const auto eligible = [&](const PHLWINDOW& window) {
-        return window && window->m_isMapped && !window->m_fadingOut && !window->m_pinned && !window->onSpecialWorkspace() && window->m_workspace &&
+        return window && window->m_isMapped && !hyprland_compat::windowIsFadingOut(window) && !window->m_pinned && !window->onSpecialWorkspace() && window->m_workspace &&
             isScrollingWorkspace(window->m_workspace) && hasManagedWindow(window) && window->layoutTarget();
     };
 
@@ -299,7 +303,7 @@ void OverviewController::beginDirectNiriMouseResize(const PHLWINDOW& window, con
     }
     dragController->m_dragThresholdReached = true;
     dragController->m_grabbedCorner = resizeCornerForPreview(preview, pointer, window->layoutTarget()->floating());
-    Cursor::overrideController->setOverride(resizeCursorName(dragController->m_grabbedCorner), Cursor::CURSOR_OVERRIDE_SPECIAL_ACTION);
+    hyprland_compat::setResizeCursorOverride(resizeCursorName(dragController->m_grabbedCorner));
     damageOwnedMonitors();
 
     if (debugLogsEnabled()) {
@@ -361,7 +365,7 @@ void OverviewController::finishDirectNiriMouseResize(bool refreshLayout) {
         const auto dragTarget = g_layoutManager->dragController()->target();
         if (dragTarget && dragTarget == window->layoutTarget()) {
             if (preserveFocus) {
-                Cursor::overrideController->unsetOverride(Cursor::CURSOR_OVERRIDE_SPECIAL_ACTION);
+                hyprland_compat::clearResizeCursorOverride();
                 dragTarget->damageEntire();
                 g_layoutManager->setTargetGeom(dragTarget->position(), dragTarget);
                 const auto& dragController = g_layoutManager->dragController();

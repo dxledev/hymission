@@ -14,6 +14,8 @@ else
   error('Could not configure current C++ compiler with C++23 support')
 endif
 
+hyprland_dep = dependency('hyprland', version: ['>=0.55.2', '<0.57.0'])
+
 add_project_arguments(
   [
     '-DWLR_USE_UNSTABLE',
@@ -42,7 +44,7 @@ src = [
 
 shared_module(meson.project_name(), src,
   dependencies: [
-    dependency('hyprland'),
+    hyprland_dep,
     dependency('lua'),
   ],
   install: true,

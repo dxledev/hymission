@@ -57,7 +57,7 @@ bool contains(const Rect& rect, const Vector2D& point) {
 double area(const Rect& rect) { return std::max(0.0, rect.width) * std::max(0.0, rect.height); }
 
 SP<CWLSurfaceResource> dndSurfaceForWindow(const PHLWINDOW& window) {
-    if (!window || !window->m_isMapped || window->m_fadingOut || !window->wlSurface() || !window->wlSurface()->exists())
+    if (!window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || !window->wlSurface() || !window->wlSurface()->exists())
         return {};
 
     return window->wlSurface()->resource();
@@ -216,7 +216,7 @@ std::optional<OverviewController::NiriDndTarget> OverviewController::directNiriD
     PHLWINDOW window;
     if (const auto hoveredIndex = hitTestTarget(pointer.x, pointer.y); hoveredIndex && *hoveredIndex < m_state.windows.size()) {
         const auto candidate = m_state.windows[*hoveredIndex].window;
-        if (candidate && candidate->m_isMapped && !candidate->m_fadingOut)
+        if (candidate && candidate->m_isMapped && !hyprland_compat::windowIsFadingOut(candidate))
             window = candidate;
     }
 
@@ -272,7 +272,7 @@ double OverviewController::directNiriDndEdgeVelocity(const NiriDndTarget& target
 }
 
 std::optional<std::pair<PHLMONITOR, double>> OverviewController::directNiriDndWorkspaceEdgeAt(const Vector2D& pointer) const {
-    const auto monitor = g_pCompositor->getMonitorFromVector(pointer);
+    const auto monitor = hyprland_compat::compositor()->getMonitorFromVector(pointer);
     if (!monitor || !ownsMonitor(monitor))
         return std::nullopt;
 

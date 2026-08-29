@@ -411,8 +411,8 @@ bool tiledWorkspaceHasWindowOtherThan(const PHLWORKSPACE &workspace, const PHLWI
     if (!workspace)
         return false;
 
-    for (const auto &candidate : g_pCompositor->m_windows) {
-        if (!candidate || candidate == ignoredWindow || !candidate->m_isMapped || candidate->m_fadingOut || candidate->m_pinned || candidate->onSpecialWorkspace() ||
+    for (const auto &candidate : hyprland_compat::compositor()->m_windows) {
+        if (!candidate || candidate == ignoredWindow || !candidate->m_isMapped || hyprland_compat::windowIsFadingOut(candidate) || candidate->m_pinned || candidate->onSpecialWorkspace() ||
             candidate->m_workspace != workspace)
             continue;
 
@@ -435,7 +435,7 @@ bool scrollingDataHasUsableColumnOtherThan(Layout::Tiled::CScrollingAlgorithm *s
         for (const auto &targetData : column->targetDatas) {
             const auto target = targetData ? targetData->target.lock() : nullptr;
             const auto window = target ? target->window() : PHLWINDOW{};
-            if (window && window != ignoredWindow && window->m_isMapped && !window->m_fadingOut && !window->m_pinned && !target->floating())
+            if (window && window != ignoredWindow && window->m_isMapped && !hyprland_compat::windowIsFadingOut(window) && !window->m_pinned && !target->floating())
                 return true;
         }
     }
@@ -532,7 +532,7 @@ bool scrollingWindowColumnIsSingleTile(Layout::Tiled::CScrollingAlgorithm *scrol
     for (const auto &candidateData : column->targetDatas) {
         const auto candidateTarget = candidateData ? candidateData->target.lock() : nullptr;
         const auto candidateWindow = candidateTarget ? candidateTarget->window() : PHLWINDOW{};
-        if (!candidateWindow || !candidateWindow->m_isMapped || candidateWindow->m_fadingOut || candidateWindow->m_pinned ||
+        if (!candidateWindow || !candidateWindow->m_isMapped || hyprland_compat::windowIsFadingOut(candidateWindow) || candidateWindow->m_pinned ||
             candidateWindow->onSpecialWorkspace() || candidateWindow->m_workspace != window->m_workspace)
             continue;
 
@@ -642,7 +642,7 @@ void restoreDetachedDragSource(const PHLWINDOW &window, const PHLWORKSPACE &work
 } // namespace
 
 bool OverviewController::canDragWindowInDirectNiriOverview(const PHLWINDOW &window) const {
-    return window && window->m_isMapped && !window->m_fadingOut && !window->m_pinned && !window->onSpecialWorkspace() && m_state.phase == Phase::Active &&
+    return window && window->m_isMapped && !hyprland_compat::windowIsFadingOut(window) && !window->m_pinned && !window->onSpecialWorkspace() && m_state.phase == Phase::Active &&
            m_state.collectionPolicy.onlyActiveWorkspace && usesDirectNiriScrollingOverview(m_state) && !m_workspaceTransition.active;
 }
 
@@ -788,7 +788,7 @@ std::optional<OverviewController::NiriDragTarget> OverviewController::directNiri
     if (!lane)
         return std::nullopt;
 
-    auto workspace = lane->workspace ? lane->workspace : g_pCompositor->getWorkspaceByID(lane->workspaceId);
+    auto workspace = lane->workspace ? lane->workspace : hyprland_compat::compositor()->getWorkspaceByID(lane->workspaceId);
 
     if (m_niriDragSession.sourceFloating) {
         return NiriDragTarget{
@@ -810,7 +810,7 @@ std::optional<OverviewController::NiriDragTarget> OverviewController::directNiri
             for (const auto &targetData : column->targetDatas) {
                 const auto target = targetData ? targetData->target.lock() : nullptr;
                 const auto window = target ? target->window() : PHLWINDOW{};
-                if (!window || window == draggedWindow || !window->m_isMapped || window->m_fadingOut || window->m_pinned ||
+                if (!window || window == draggedWindow || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || window->m_pinned ||
                     window->onSpecialWorkspace() || window->m_workspace != workspace)
                     continue;
 
@@ -971,10 +971,10 @@ bool OverviewController::applyDirectNiriDragTarget(const PHLWINDOW &window, cons
     if (!window || !target.monitor || target.workspaceId == WORKSPACE_INVALID)
         return false;
 
-    auto workspace = target.workspace ? target.workspace : g_pCompositor->getWorkspaceByID(target.workspaceId);
+    auto workspace = target.workspace ? target.workspace : hyprland_compat::compositor()->getWorkspaceByID(target.workspaceId);
     const bool createdWorkspaceForDrop = !workspace;
     if (!workspace)
-        workspace = g_pCompositor->createNewWorkspace(target.workspaceId, target.monitor->m_id, std::to_string(target.workspaceId), false);
+        workspace = hyprland_compat::compositor()->createNewWorkspace(target.workspaceId, target.monitor->m_id, std::to_string(target.workspaceId), false);
     if (!workspace || workspace->m_isSpecialWorkspace)
         return false;
 
@@ -1006,12 +1006,12 @@ bool OverviewController::applyDirectNiriDragTarget(const PHLWINDOW &window, cons
     const bool      dropIntoPreservedEmptyOwner = dropIntoEmptyWorkspace && workspace == preservedOwnerWorkspace;
 
     const auto validPreservedFocus = [&](const PHLWINDOW &candidate) {
-        return candidate && candidate->m_isMapped && !candidate->m_fadingOut && !candidate->m_pinned && !candidate->onSpecialWorkspace() &&
+        return candidate && candidate->m_isMapped && !hyprland_compat::windowIsFadingOut(candidate) && !candidate->m_pinned && !candidate->onSpecialWorkspace() &&
             candidate->m_workspace == preservedOwnerWorkspace;
     };
 
     const auto validLastFocusForWorkspace = [](const PHLWORKSPACE &workspace, const PHLWINDOW &candidate) -> PHLWINDOW {
-        if (!workspace || !candidate || !candidate->m_isMapped || candidate->m_fadingOut || candidate->m_pinned || candidate->onSpecialWorkspace() ||
+        if (!workspace || !candidate || !candidate->m_isMapped || hyprland_compat::windowIsFadingOut(candidate) || candidate->m_pinned || candidate->onSpecialWorkspace() ||
             candidate->m_workspace != workspace)
             return {};
 
@@ -1034,7 +1034,7 @@ bool OverviewController::applyDirectNiriDragTarget(const PHLWINDOW &window, cons
                 return candidate;
         }
 
-        for (const auto &candidate : g_pCompositor->m_windows) {
+        for (const auto &candidate : hyprland_compat::compositor()->m_windows) {
             if (!validPreservedFocus(candidate) || candidate == window)
                 continue;
 
@@ -1127,8 +1127,8 @@ bool OverviewController::applyDirectNiriDragTarget(const PHLWINDOW &window, cons
         if (!candidateWorkspace || candidateWorkspace->m_isSpecialWorkspace)
             return false;
 
-        for (const auto &candidate : g_pCompositor->m_windows) {
-            if (!candidate || !candidate->m_isMapped || candidate->m_fadingOut || candidate->m_workspace != candidateWorkspace || candidate->m_pinned ||
+        for (const auto &candidate : hyprland_compat::compositor()->m_windows) {
+            if (!candidate || !candidate->m_isMapped || hyprland_compat::windowIsFadingOut(candidate) || candidate->m_workspace != candidateWorkspace || candidate->m_pinned ||
                 candidate->onSpecialWorkspace())
                 continue;
 
@@ -1209,7 +1209,7 @@ bool OverviewController::applyDirectNiriDragTarget(const PHLWINDOW &window, cons
             m_applyingWorkspaceTransitionCommit = previousGuard;
             m_rebuildVisibleStateAfterWorkspaceTransitionCommit = false;
 
-            if (restoreFocus && restoreFocus->m_isMapped && !restoreFocus->m_fadingOut && restoreFocus->m_workspace == restoreWorkspace) {
+            if (restoreFocus && restoreFocus->m_isMapped && !hyprland_compat::windowIsFadingOut(restoreFocus) && restoreFocus->m_workspace == restoreWorkspace) {
                 if (Desktop::focusState()->window() != restoreFocus)
                     Desktop::focusState()->rawWindowFocus(restoreFocus, Desktop::FOCUS_REASON_DESKTOP_STATE_CHANGE);
                 restoreWorkspace->m_lastFocusedWindow = restoreFocus;
@@ -1293,7 +1293,7 @@ bool OverviewController::applyDirectNiriDragTarget(const PHLWINDOW &window, cons
     if (sourceWorkspace != workspace) {
         const bool previousGuard = m_applyingWorkspaceTransitionCommit;
         m_applyingWorkspaceTransitionCommit = true;
-        g_pCompositor->moveWindowToWorkspaceSafe(window, workspace);
+        hyprland_compat::compositor()->moveWindowToWorkspaceSafe(window, workspace);
         m_applyingWorkspaceTransitionCommit = previousGuard;
         niri_scrolling_detail::armDirectNiriWorkspaceTransferRenderGuard(window);
         m_rebuildVisibleStateAfterWorkspaceTransitionCommit = false;

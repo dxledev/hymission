@@ -70,10 +70,12 @@ For local development, `hymission` uses CMake and outputs `build-cmake/libhymiss
 
 Requirements:
 
-- Hyprland development headers for the exact Hyprland build you are running
+- Hyprland 0.55.2 or 0.56.x development headers for the exact Hyprland build you are running
 - `cmake`
 - `pkg-config`
 - a C++23-capable compiler
+
+The same source tree supports Hyprland 0.55.2 and 0.56.x. Hyprland plugins are tied to the compositor's build, so rebuild `hymission` after upgrading Hyprland instead of reusing the old `.so`.
 
 Build:
 

@@ -1,4 +1,5 @@
 build/
+build-*/
 build-meson/
 build-cmake/
 .codex

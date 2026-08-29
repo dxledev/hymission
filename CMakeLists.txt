@@ -27,7 +27,15 @@ if(CMAKE_EXPORT_COMPILE_COMMANDS)
 endif()
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(HYPR_DEPS REQUIRED hyprland)
+set(HYM_HYPRLAND_MIN_VERSION "0.55.2" CACHE STRING "Oldest supported Hyprland version")
+set(HYM_HYPRLAND_MAX_VERSION "0.57.0" CACHE STRING "First unsupported Hyprland version")
+pkg_check_modules(HYPR_DEPS REQUIRED "hyprland>=${HYM_HYPRLAND_MIN_VERSION}")
+if(HYPR_DEPS_VERSION VERSION_GREATER_EQUAL HYM_HYPRLAND_MAX_VERSION)
+  message(FATAL_ERROR
+    "Hyprland ${HYPR_DEPS_VERSION} is newer than the tested compatibility range "
+    "${HYM_HYPRLAND_MIN_VERSION} through 0.56.x")
+endif()
+message(STATUS "Building hymission for Hyprland ${HYPR_DEPS_VERSION}")
 pkg_check_modules(LUA REQUIRED lua)
 
 add_library(hymission SHARED

@@ -33,7 +33,11 @@
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
+#if HYM_HYPRLAND_0_56
+#include <hyprland/src/animation/AnimationManager.hpp>
+#else
 #include <hyprland/src/managers/animation/AnimationManager.hpp>
+#endif
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 
@@ -222,7 +226,7 @@ bool scrollingTargetDataBelongsToWorkspace(const TargetDataPtr& targetData, cons
         return false;
 
     const auto candidateWindow = targetData->target->window();
-    if (!candidateWindow || !candidateWindow->m_isMapped || candidateWindow->m_fadingOut || candidateWindow->m_pinned ||
+    if (!candidateWindow || !candidateWindow->m_isMapped || hyprland_compat::windowIsFadingOut(candidateWindow) || candidateWindow->m_pinned ||
         candidateWindow->onSpecialWorkspace() || candidateWindow->m_workspace != workspace)
         return false;
 
@@ -249,7 +253,7 @@ bool scrollingDataHasStaleWorkspaceTargets(Layout::Tiled::CScrollingAlgorithm* s
                 return true;
 
             const auto liveTarget = candidateWindow->layoutTarget();
-            if (!candidateWindow->m_isMapped || candidateWindow->m_fadingOut || candidateWindow->m_pinned ||
+            if (!candidateWindow->m_isMapped || hyprland_compat::windowIsFadingOut(candidateWindow) || candidateWindow->m_pinned ||
                 candidateWindow->onSpecialWorkspace() || candidateWindow->m_workspace != workspace || !liveTarget || liveTarget != targetData->target)
                 return true;
         }
@@ -291,7 +295,7 @@ HydrateScrollingSnapshotResult hydrateScrollingDataFromWorkspaceTargets(Layout::
             return false;
 
         const auto window = target->window();
-        if (!window || !window->m_isMapped || window->m_fadingOut || window->m_pinned || window->onSpecialWorkspace() || window->m_workspace != workspace)
+        if (!window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || window->m_pinned || window->onSpecialWorkspace() || window->m_workspace != workspace)
             return false;
 
         const auto liveTarget = window->layoutTarget();
@@ -318,8 +322,8 @@ HydrateScrollingSnapshotResult hydrateScrollingDataFromWorkspaceTargets(Layout::
     // targets are already assigned to the workspace but whose scrolling columns
     // were never materialized yet.  Fall back to the compositor window list so
     // the overview can seed the scrolling snapshot without a real workspace switch.
-    for (const auto& window : g_pCompositor->m_windows) {
-        if (!window || !window->m_isMapped || window->m_fadingOut || window->m_pinned || window->onSpecialWorkspace() || window->m_workspace != workspace)
+    for (const auto& window : hyprland_compat::compositor()->m_windows) {
+        if (!window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || window->m_pinned || window->onSpecialWorkspace() || window->m_workspace != workspace)
             continue;
 
         const auto target = window->layoutTarget();
@@ -507,14 +511,14 @@ CBox liveScrollingLayoutBoxForTarget(const TargetPtr& target, const CBox& snapsh
         // still the old leaf-centered box.  Use the real animated variable goal as
         // the final overview target, and keep snapshotBox only as a fallback.
         const auto window = target->window();
-        if (window && window->m_realPosition && window->m_realSize) {
-            Vector2D position = window->m_realPosition->goal();
+        if (window && hyprland_compat::windowPositionAnimation(window) && hyprland_compat::windowSizeAnimation(window)) {
+            Vector2D position = hyprland_compat::windowPositionAnimation(window)->goal();
             if (window->m_workspace && !window->m_pinned && window->m_workspace->m_renderOffset)
                 position += window->m_workspace->m_renderOffset->goal();
             if (window->m_isFloating)
                 position += window->m_floatingOffset;
 
-            const Vector2D size = window->m_realSize->goal();
+            const Vector2D size = hyprland_compat::windowSizeAnimation(window)->goal();
             if (size.x > 1.0 && size.y > 1.0)
                 return CBox{position.x, position.y, size.x, size.y};
         }
@@ -603,7 +607,7 @@ PHLWINDOW edgeCameraReturnLeafForWorkspace(const PHLWORKSPACE& workspace, Scroll
 
         const auto target = targetData->target.lock();
         const auto window = target ? target->window() : PHLWINDOW{};
-        if (!window || !window->m_isMapped || window->m_fadingOut || window->m_pinned || window->onSpecialWorkspace() || window->m_workspace != workspace)
+        if (!window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || window->m_pinned || window->onSpecialWorkspace() || window->m_workspace != workspace)
             return {};
         if (!target || target->floating() || isFloatingOverviewWindow(window))
             return {};
@@ -697,13 +701,13 @@ bool scrollingNativeGeometryInFlight(Layout::Tiled::CScrollingAlgorithm* scrolli
                 continue;
 
             const auto window = targetData->target->window();
-            if (!window || !window->m_realPosition || !window->m_realSize)
+            if (!window || !hyprland_compat::windowPositionAnimation(window) || !hyprland_compat::windowSizeAnimation(window))
                 continue;
 
-            const Vector2D livePosition = window->m_realPosition->value();
-            const Vector2D goalPosition = window->m_realPosition->goal();
-            const Vector2D liveSize = window->m_realSize->value();
-            const Vector2D goalSize = window->m_realSize->goal();
+            const Vector2D livePosition = hyprland_compat::windowPositionAnimation(window)->value();
+            const Vector2D goalPosition = hyprland_compat::windowPositionAnimation(window)->goal();
+            const Vector2D liveSize = hyprland_compat::windowSizeAnimation(window)->value();
+            const Vector2D goalSize = hyprland_compat::windowSizeAnimation(window)->goal();
             if (std::abs(livePosition.x - goalPosition.x) > 0.5 || std::abs(livePosition.y - goalPosition.y) > 0.5 ||
                 std::abs(liveSize.x - goalSize.x) > 0.5 || std::abs(liveSize.y - goalSize.y) > 0.5)
                 return true;
@@ -1042,7 +1046,7 @@ Vector2D renderedWindowPosition(const PHLWINDOW& window, bool goal = false) {
     // Hyprland's realPosition is already expressed in global compositor coordinates.
     // Adding workspace render offsets or floating offsets here double-counts them and
     // pushes overview open/close geometry toward off-screen workspace animation space.
-    return goal ? window->m_realPosition->goal() : window->m_realPosition->value();
+    return goal ? hyprland_compat::windowPositionAnimation(window)->goal() : hyprland_compat::windowPositionAnimation(window)->value();
 }
 
 Rect stateSnapshotGlobalRectForWindow(const PHLWINDOW& window, bool goal = false) {
@@ -1050,7 +1054,7 @@ Rect stateSnapshotGlobalRectForWindow(const PHLWINDOW& window, bool goal = false
         return {};
 
     Vector2D position = renderedWindowPosition(window, goal);
-    const Vector2D size = goal ? window->m_realSize->goal() : window->m_realSize->value();
+    const Vector2D size = goal ? hyprland_compat::windowSizeAnimation(window)->goal() : hyprland_compat::windowSizeAnimation(window)->value();
     return makeRect(position.x, position.y, size.x, size.y);
 }
 
@@ -1059,7 +1063,7 @@ Rect layoutAnchorGlobalRectForWindow(const PHLWINDOW& window, bool goal = false)
         return {};
 
     const Vector2D position = renderedWindowPosition(window, goal);
-    const Vector2D size = goal ? window->m_realSize->goal() : window->m_realSize->value();
+    const Vector2D size = goal ? hyprland_compat::windowSizeAnimation(window)->goal() : hyprland_compat::windowSizeAnimation(window)->value();
     return makeRect(position.x, position.y, size.x, size.y);
 }
 
@@ -1071,7 +1075,7 @@ Rect sceneGlobalRectForWindow(const PHLWINDOW& window, bool goal = false) {
     if (window->m_workspace && !window->m_pinned)
         position += goal ? window->m_workspace->m_renderOffset->goal() : window->m_workspace->m_renderOffset->value();
 
-    const Vector2D size = goal ? window->m_realSize->goal() : window->m_realSize->value();
+    const Vector2D size = goal ? hyprland_compat::windowSizeAnimation(window)->goal() : hyprland_compat::windowSizeAnimation(window)->value();
     return makeRect(position.x, position.y, size.x, size.y);
 }
 
@@ -1087,7 +1091,7 @@ Rect directNiriFloatingSnapshotGlobalRectForWindow(const PHLWINDOW& window, bool
     if (!window || !isFloatingOverviewWindow(window))
         return rect;
 
-    const Vector2D liveSize = window->m_realSize->value();
+    const Vector2D liveSize = hyprland_compat::windowSizeAnimation(window)->value();
     if (liveSize.x > 1.0 && liveSize.y > 1.0) {
         rect.width = liveSize.x;
         rect.height = liveSize.y;
@@ -1516,7 +1520,7 @@ bool validFit1TiledWorkspaceWindow(const PHLWORKSPACE& workspace, const PHLWINDO
     if (getConfigInt(nullptr, "scrolling:focus_fit_method", 0) != 1)
         return false;
 
-    if (!workspace || !window || !window->m_isMapped || window->m_fadingOut || window->m_pinned || window->onSpecialWorkspace() ||
+    if (!workspace || !window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || window->m_pinned || window->onSpecialWorkspace() ||
         window->m_workspace != workspace || isFloatingOverviewWindow(window))
         return false;
 
@@ -1727,7 +1731,7 @@ bool shouldWrapWorkspaceIds(const WORKSPACEID targetId, const WORKSPACEID curren
     WORKSPACEID lowestID = INT64_MAX;
     WORKSPACEID highestID = INT64_MIN;
 
-    for (const auto& workspace : g_pCompositor->getWorkspaces()) {
+    for (const auto& workspace : hyprland_compat::compositor()->getWorkspaces()) {
         if (!workspace || workspace->m_id < 0 || workspace->m_isSpecialWorkspace)
             continue;
 
@@ -1840,7 +1844,7 @@ void OverviewController::captureNiriOverviewViewports() {
     if (!niriModeEnabled())
         return;
 
-    for (const auto& monitor : g_pCompositor->m_monitors) {
+    for (const auto& monitor : hyprland_compat::compositor()->m_monitors) {
         if (!monitor)
             continue;
 
@@ -2055,7 +2059,7 @@ PHLWORKSPACE OverviewController::activeLayoutWorkspace() const {
     if (isVisible() && niriModeAppliesToState(m_state)) {
         PHLMONITOR ownerMonitor = m_state.ownerMonitor;
         if (!ownerMonitor)
-            ownerMonitor = g_pCompositor->getMonitorFromCursor();
+            ownerMonitor = hyprland_compat::compositor()->getMonitorFromCursor();
 
         // When the overview is launched from a layer surface (for example Waybar),
         // Hyprland's focused monitor/window can still belong to another monitor for
@@ -2096,7 +2100,7 @@ PHLWORKSPACE OverviewController::activeLayoutWorkspace() const {
     if (!monitor)
         monitor = m_state.ownerMonitor;
     if (!monitor)
-        monitor = g_pCompositor->getMonitorFromCursor();
+        monitor = hyprland_compat::compositor()->getMonitorFromCursor();
     if (!monitor)
         return {};
 
@@ -2236,8 +2240,8 @@ bool OverviewController::scrollActiveLayoutByGestureDelta(const IPointer::SSwipe
     if (std::abs(offsetAfter - offsetBefore) >= 0.001) {
         controller->setOffset(offsetAfter);
         data->recalculate(true);
-        if (g_pAnimationManager)
-            g_pAnimationManager->frameTick();
+        if (hyprland_compat::animationManager())
+            hyprland_compat::animationManager()->frameTick();
     }
 
     if (traceMove) {
@@ -3352,7 +3356,7 @@ bool focusFit0NativeOffsetSelectsWindowColumn(const PHLWINDOW& window, const PHL
     if (getConfigInt(nullptr, "scrolling:focus_fit_method", 0) != 0)
         return false;
 
-    if (!window || !window->m_isMapped || window->m_fadingOut || !window->m_workspace || window->m_workspace->m_isSpecialWorkspace ||
+    if (!window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || !window->m_workspace || window->m_workspace->m_isSpecialWorkspace ||
         window->m_pinned || window->onSpecialWorkspace() || isFloatingOverviewWindow(window))
         return false;
 
@@ -4494,8 +4498,8 @@ bool OverviewController::syncScrollingWorkspaceSpotOnWindow(
     if (const auto monitor = window->m_workspace->m_monitor.lock())
         g_layoutManager->recalculateMonitor(monitor);
 
-    if (g_pAnimationManager)
-        g_pAnimationManager->frameTick();
+    if (hyprland_compat::animationManager())
+        hyprland_compat::animationManager()->frameTick();
 
     if (debugLogsEnabled()) {
         std::ostringstream out;
@@ -4635,8 +4639,8 @@ void OverviewController::syncRealFocusDuringOverview(
     if (syncOverviewScrollingSpot)
         (void)syncScrollingWorkspaceSpotOnWindow(
             window, ScrollingSpotTargeting::Configured, ScrollingSpotSyncIntent::FocusChange);
-    if (g_pAnimationManager)
-        g_pAnimationManager->frameTick();
+    if (hyprland_compat::animationManager())
+        hyprland_compat::animationManager()->frameTick();
     if (syncOverviewScrollingSpot)
         refreshNiriScrollingOverviewAfterLayoutScroll("focus-sync", previousPreviewRects);
     if (m_pendingLiveFocusWorkspaceChangeTarget.lock() == window)
@@ -4911,7 +4915,7 @@ bool OverviewController::carryFrozenSwapColumnBackendPreviewLayout(State& state,
     return true;
 }
 void OverviewController::centerCursorOnOverviewWindow(const PHLWINDOW& window, const char* source) {
-    if (!window || !g_pCompositor || getConfigInt(m_handle, "plugin:hymission:overview_center_cursor_on_hover_focus", 1) == 0)
+    if (!window || !hyprland_compat::compositor() || getConfigInt(m_handle, "plugin:hymission:overview_center_cursor_on_hover_focus", 1) == 0)
         return;
 
     if (!isVisible() || m_state.phase != Phase::Active || !usesDirectNiriScrollingOverview(m_state))
@@ -4936,7 +4940,7 @@ void OverviewController::centerCursorOnOverviewWindow(const PHLWINDOW& window, c
         debugLog(out.str());
     }
 
-    g_pCompositor->warpCursorTo(center);
+    hyprland_compat::compositor()->warpCursorTo(center);
     latchHoverSelectionAnchor(center);
     updateHoveredFromPointer(false, false, false, false, "center-cursor-hover-focus");
 }
@@ -5186,11 +5190,11 @@ SDispatchResult OverviewController::runDirectNiriSilentMoveToWorkspaceDispatcher
     const PHLWINDOW preservedOwnerLastFocus = preservedOwnerWorkspace ? preservedOwnerWorkspace->getLastFocusedWindow() : PHLWINDOW{};
 
     const auto validOwnerFocus = [&](const PHLWINDOW& candidate) {
-        return candidate && candidate->m_isMapped && !candidate->m_fadingOut && !candidate->m_pinned && !candidate->onSpecialWorkspace() &&
+        return candidate && candidate->m_isMapped && !hyprland_compat::windowIsFadingOut(candidate) && !candidate->m_pinned && !candidate->onSpecialWorkspace() &&
             candidate->m_workspace == preservedOwnerWorkspace;
     };
     const auto validLastFocusForWorkspace = [](const PHLWORKSPACE& workspace, const PHLWINDOW& candidate) -> PHLWINDOW {
-        if (!workspace || !candidate || !candidate->m_isMapped || candidate->m_fadingOut || candidate->m_pinned || candidate->onSpecialWorkspace() ||
+        if (!workspace || !candidate || !candidate->m_isMapped || hyprland_compat::windowIsFadingOut(candidate) || candidate->m_pinned || candidate->onSpecialWorkspace() ||
             candidate->m_workspace != workspace)
             return {};
 
@@ -5210,7 +5214,7 @@ SDispatchResult OverviewController::runDirectNiriSilentMoveToWorkspaceDispatcher
                 return candidate;
         }
 
-        for (const auto& candidate : g_pCompositor->m_windows) {
+        for (const auto& candidate : hyprland_compat::compositor()->m_windows) {
             if (validOwnerFocus(candidate) && candidate != movedWindow)
                 return candidate;
         }
@@ -5308,7 +5312,7 @@ std::optional<SDispatchResult> OverviewController::tryRunDirectNiriMoveToWorkspa
     PHLWINDOW   movedWindow = selectedBefore;
     bool        explicitWindowArg = false;
     if (const auto separator = args.find_last_of(','); separator != std::string::npos) {
-        movedWindow = g_pCompositor->getWindowByRegex(args.substr(separator + 1));
+        movedWindow = hyprland_compat::compositor()->getWindowByRegex(args.substr(separator + 1));
         workspaceArgs = args.substr(0, separator);
         explicitWindowArg = true;
     }
@@ -5323,10 +5327,10 @@ std::optional<SDispatchResult> OverviewController::tryRunDirectNiriMoveToWorkspa
     if (!canPrepareWorkspaceTransition)
         return std::nullopt;
 
-    auto       targetWorkspace = targetSpec.id == WORKSPACE_INVALID ? PHLWORKSPACE{} : g_pCompositor->getWorkspaceByID(targetSpec.id);
+    auto       targetWorkspace = targetSpec.id == WORKSPACE_INVALID ? PHLWORKSPACE{} : hyprland_compat::compositor()->getWorkspaceByID(targetSpec.id);
     if (!targetWorkspace && sourceMonitor && targetSpec.id != WORKSPACE_INVALID && !targetSpec.name.starts_with("special:")) {
         const std::string targetName = targetSpec.name.empty() ? std::to_string(targetSpec.id) : targetSpec.name;
-        targetWorkspace = g_pCompositor->createNewWorkspace(targetSpec.id, sourceMonitor->m_id, targetName, false);
+        targetWorkspace = hyprland_compat::compositor()->createNewWorkspace(targetSpec.id, sourceMonitor->m_id, targetName, false);
     }
     const auto targetMonitor = targetWorkspace ? targetWorkspace->m_monitor.lock() : PHLMONITOR{};
     const bool canOwnSilentWorkspaceMove = keepFocusOnSource && targetWorkspace && !targetWorkspace->m_isSpecialWorkspace &&
@@ -5959,7 +5963,7 @@ SDispatchResult OverviewController::runOverviewEditingDispatcher(const char* dis
 
         PHLWINDOW retainedMoveSource = selectedBefore;
         if (const auto separator = args.find_last_of(','); separator != std::string::npos)
-            retainedMoveSource = g_pCompositor->getWindowByRegex(args.substr(separator + 1));
+            retainedMoveSource = hyprland_compat::compositor()->getWindowByRegex(args.substr(separator + 1));
 
         const auto retainedSourceWorkspace = retainedMoveSource ? retainedMoveSource->m_workspace : PHLWORKSPACE{};
         const auto retainedSourceMonitor = retainedSourceWorkspace ? retainedSourceWorkspace->m_monitor.lock() : PHLMONITOR{};
@@ -6366,8 +6370,8 @@ SDispatchResult OverviewController::runOverviewEditingDispatcher(const char* dis
         refreshWorkspaceLayoutSnapshot(anchor->m_workspace);
         if (const auto monitor = anchor->m_monitor.lock())
             g_layoutManager->recalculateMonitor(monitor);
-        if (g_pAnimationManager)
-            g_pAnimationManager->frameTick();
+        if (hyprland_compat::animationManager())
+            hyprland_compat::animationManager()->frameTick();
 
         m_stripSnapshotsDirty = true;
         scheduleWorkspaceStripSnapshotRefresh();
@@ -6864,8 +6868,8 @@ SDispatchResult OverviewController::runOverviewEditingDispatcher(const char* dis
         if (const auto activeWorkspace = activeLayoutWorkspace(); activeWorkspace)
             addWorkspace(activeWorkspace);
 
-        if (g_pAnimationManager)
-            g_pAnimationManager->frameTick();
+        if (hyprland_compat::animationManager())
+            hyprland_compat::animationManager()->frameTick();
         for (const auto& workspace : affectedWorkspaces)
             refreshWorkspaceLayoutSnapshot(workspace);
 
@@ -6943,8 +6947,8 @@ SDispatchResult OverviewController::runOverviewEditingDispatcher(const char* dis
                     }
                 }
 
-                if (g_pAnimationManager)
-                    g_pAnimationManager->frameTick();
+                if (hyprland_compat::animationManager())
+                    hyprland_compat::animationManager()->frameTick();
                 if (target->m_workspace)
                     refreshWorkspaceLayoutSnapshot(target->m_workspace);
                 if (const auto activeWorkspace = activeLayoutWorkspace(); activeWorkspace && activeWorkspace != target->m_workspace)
@@ -8144,7 +8148,7 @@ PHLWORKSPACE OverviewController::niriWorkspaceForBackground(const State& state, 
     };
 
     if (!workspaceMatchesMonitor(workspace) && background.workspaceId != WORKSPACE_INVALID) {
-        if (const auto byId = g_pCompositor->getWorkspaceByID(background.workspaceId); workspaceMatchesMonitor(byId))
+        if (const auto byId = hyprland_compat::compositor()->getWorkspaceByID(background.workspaceId); workspaceMatchesMonitor(byId))
             workspace = byId;
     }
 
@@ -8653,8 +8657,8 @@ void OverviewController::buildWorkspaceStripEntries(State& state) const {
     const double                 stripGap = std::clamp(workspaceStripGap() * 0.5, 8.0, 24.0);
     const double                 padding = 12.0;
     std::unordered_set<WORKSPACEID> workspacesWithWindows;
-    for (const auto& window : g_pCompositor->m_windows) {
-        if (!window || !window->m_workspace || !window->m_isMapped || window->m_fadingOut || window->isHidden())
+    for (const auto& window : hyprland_compat::compositor()->m_windows) {
+        if (!window || !window->m_workspace || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || window->isHidden())
             continue;
 
         workspacesWithWindows.insert(window->m_workspace->m_id);
@@ -8707,7 +8711,7 @@ void OverviewController::buildWorkspaceStripEntries(State& state) const {
         }
 
         std::vector<PHLWORKSPACE> normalWorkspaces;
-        const auto allWorkspaces = g_pCompositor->getWorkspacesCopy();
+        const auto allWorkspaces = hyprland_compat::compositor()->getWorkspacesCopy();
         normalWorkspaces.reserve(allWorkspaces.size());
         for (const auto& workspace : allWorkspaces) {
             if (!workspace || workspace->m_isSpecialWorkspace)
@@ -8722,8 +8726,8 @@ void OverviewController::buildWorkspaceStripEntries(State& state) const {
             normalWorkspaces.push_back(stripActiveWorkspace);
 
         if (singleWorkspaceScrollingNiri) {
-            for (const auto& window : g_pCompositor->m_windows) {
-                if (!window || !window->m_isMapped || window->m_fadingOut || !window->m_workspace || window->m_workspace->m_isSpecialWorkspace)
+            for (const auto& window : hyprland_compat::compositor()->m_windows) {
+                if (!window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || !window->m_workspace || window->m_workspace->m_isSpecialWorkspace)
                     continue;
 
                 const auto workspaceMonitor = window->m_workspace->m_monitor.lock();
@@ -8822,7 +8826,7 @@ void OverviewController::buildWorkspaceStripEntries(State& state) const {
         }
 
         WORKSPACEID nextWorkspaceId = stripWorkspaceIds.empty() ? 1 : static_cast<WORKSPACEID>(std::max<int64_t>(stripWorkspaceIds.back(), 0) + 1);
-        while (g_pCompositor->getWorkspaceByID(nextWorkspaceId))
+        while (hyprland_compat::compositor()->getWorkspaceByID(nextWorkspaceId))
             ++nextWorkspaceId;
 
         monitorEntries.push_back({
@@ -8904,8 +8908,8 @@ void OverviewController::buildWorkspaceStripEntries(State& state) const {
     }
 
     const auto focusWindow = state.focusDuringOverview ? state.focusDuringOverview : Desktop::focusState()->window();
-    for (const auto& window : g_pCompositor->m_windows) {
-        if (!window || !window->m_isMapped || window->m_fadingOut || window->isHidden())
+    for (const auto& window : hyprland_compat::compositor()->m_windows) {
+        if (!window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || window->isHidden())
             continue;
 
         if (!windowHasUsableStateGeometry(window))
@@ -9033,7 +9037,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
     if (state.collectionPolicy.onlyActiveMonitor) {
         addMonitor(monitor);
     } else {
-        for (const auto& candidate : g_pCompositor->m_monitors)
+        for (const auto& candidate : hyprland_compat::compositor()->m_monitors)
             addMonitor(candidate);
     }
 
@@ -9064,7 +9068,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
                 addWorkspace(candidateMonitor->m_activeWorkspace);
         }
     } else {
-        for (const auto& workspace : g_pCompositor->getWorkspacesCopy()) {
+        for (const auto& workspace : hyprland_compat::compositor()->getWorkspacesCopy()) {
             if (!workspace || workspace->m_isSpecialWorkspace)
                 continue;
 
@@ -9146,22 +9150,22 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
 
         FullscreenWorkspaceBackup backup;
         backup.workspace = workspace;
-        backup.hadFullscreenWindow = workspace->m_hasFullscreenWindow;
-        backup.fullscreenMode = workspace->m_hasFullscreenWindow ? workspace->m_fullscreenMode : FSMODE_NONE;
-        if (workspace->m_hasFullscreenWindow) {
-            backup.originalFullscreenWindow = workspace->getFullscreenWindow();
-            backup.originalFullscreenMode = workspace->m_fullscreenMode;
+        backup.hadFullscreenWindow = hyprland_compat::workspaceHasFullscreen(workspace);
+        backup.fullscreenMode = hyprland_compat::workspaceFullscreenMode(workspace);
+        if (backup.hadFullscreenWindow) {
+            backup.originalFullscreenWindow = hyprland_compat::workspaceFullscreenWindow(workspace);
+            backup.originalFullscreenMode = backup.fullscreenMode;
         }
 
         if (!backup.originalFullscreenWindow || backup.originalFullscreenMode == FSMODE_NONE) {
-            for (const auto& window : g_pCompositor->m_windows) {
-                if (!window || !window->m_isMapped || window->m_workspace != workspace || window->m_fullscreenState.internal == FSMODE_NONE)
+            for (const auto& window : hyprland_compat::compositor()->m_windows) {
+                if (!window || !window->m_isMapped || window->m_workspace != workspace || hyprland_compat::windowFullscreenMode(window) == FSMODE_NONE)
                     continue;
 
                 backup.originalFullscreenWindow = window;
-                backup.originalFullscreenMode = window->m_fullscreenState.internal;
+                backup.originalFullscreenMode = hyprland_compat::windowFullscreenMode(window);
                 backup.hadFullscreenWindow = true;
-                backup.fullscreenMode = window->m_fullscreenState.internal;
+                backup.fullscreenMode = hyprland_compat::windowFullscreenMode(window);
                 break;
             }
         }
@@ -9170,7 +9174,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
     }
 
     std::vector<PHLWINDOW> candidates;
-    candidates.reserve(g_pCompositor->m_windows.size());
+    candidates.reserve(hyprland_compat::compositor()->m_windows.size());
 
     const auto appendCandidate = [&](const PHLWINDOW& window) {
         if (!window || containsHandle(candidates, window))
@@ -9199,7 +9203,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
         }
     }
 
-    for (const auto& window : g_pCompositor->m_windows) {
+    for (const auto& window : hyprland_compat::compositor()->m_windows) {
         if (!window)
             continue;
 
@@ -9322,7 +9326,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
                     monitorWorkspaces.push_back(workspace);
             }
 
-            for (const auto& workspace : g_pCompositor->getWorkspacesCopy()) {
+            for (const auto& workspace : hyprland_compat::compositor()->getWorkspacesCopy()) {
                 if (!workspace || workspace->m_isSpecialWorkspace)
                     continue;
 
@@ -9331,8 +9335,8 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
                     monitorWorkspaces.push_back(workspace);
             }
 
-            for (const auto& window : g_pCompositor->m_windows) {
-                if (!window || !window->m_isMapped || window->m_fadingOut || !window->m_workspace || window->m_workspace->m_isSpecialWorkspace)
+            for (const auto& window : hyprland_compat::compositor()->m_windows) {
+                if (!window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || !window->m_workspace || window->m_workspace->m_isSpecialWorkspace)
                     continue;
 
                 const auto workspaceMonitor = window->m_workspace->m_monitor.lock();
@@ -9568,7 +9572,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
         };
 
         for (const auto& candidate : candidates) {
-            if (!candidate || candidate == window || !candidate->m_isMapped || candidate->m_fadingOut || candidate->isHidden() || candidate->m_pinned ||
+            if (!candidate || candidate == window || !candidate->m_isMapped || hyprland_compat::windowIsFadingOut(candidate) || candidate->isHidden() || candidate->m_pinned ||
                 candidate->m_workspace != layoutWorkspace)
                 continue;
 
@@ -10514,7 +10518,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
 
         for (const auto& managed : state.windows) {
             const auto& window = managed.window;
-            if (!window || !window->m_isMapped || window->m_fadingOut || window->m_pinned || window->onSpecialWorkspace() ||
+            if (!window || !window->m_isMapped || hyprland_compat::windowIsFadingOut(window) || window->m_pinned || window->onSpecialWorkspace() ||
                 window->m_workspace != state.ownerWorkspace || isFloatingOverviewWindow(window))
                 continue;
 
