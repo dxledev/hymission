@@ -65,6 +65,20 @@ bool equalsAsciiInsensitive(std::string_view value, std::string_view expected) {
 
 } // namespace
 
+int scaledOverviewRounding(double logicalRounding, double monitorScale, double previewScale) {
+    // Hyprland truncates the monitor-scaled radius before the surface pass.
+    const int nativeRounding = std::max(0, static_cast<int>(logicalRounding * monitorScale));
+    return std::max(0, static_cast<int>(std::lround(nativeRounding * previewScale)));
+}
+
+int overviewBorderOuterRounding(int rounding, float roundingPower, int borderSize, double monitorScale) {
+    if (rounding <= 0)
+        return 0;
+
+    const double correction = borderSize * (std::sqrt(2.0) - 1.0) * std::max(2.0 - roundingPower, 0.0);
+    return std::max(0, static_cast<int>(rounding + (borderSize - correction) * monitorScale));
+}
+
 std::optional<std::size_t> hitTest(const std::vector<Rect>& rects, double x, double y) {
     std::optional<std::size_t> bestIndex;
     double                     bestDistance = std::numeric_limits<double>::infinity();

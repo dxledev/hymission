@@ -6841,9 +6841,6 @@ double OverviewController::focusedBorderThicknessReduction() const {
     return std::clamp(getConfigFloat(m_handle, "plugin:hymission:overview_focused_border_thickness_reduction", 0.25), 0.0, 32.0);
 }
 
-double OverviewController::overviewBorderRoundingScale() const {
-    return std::clamp(getConfigFloat(m_handle, "plugin:hymission:overview_border_rounding_scale", 2.35), 0.1, 4.0);
-}
 
 
 
@@ -10809,6 +10806,17 @@ std::optional<OverviewController::WindowTransform> OverviewController::windowTra
     };
 }
 
+double OverviewController::previewRoundingScale(const WindowTransform& transform, const PHLMONITOR& monitor) const {
+    double scale = std::max(0.0, std::min(std::abs(transform.scaleX), std::abs(transform.scaleY)));
+    if (m_stripPreviewContext.active) {
+        const auto   fbSize = m_stripPreviewContext.framebufferSize;
+        const double monitorPixelWidth = std::max(1.0, static_cast<double>(monitor->m_size.x) * renderScaleForMonitor(monitor));
+        const double monitorPixelHeight = std::max(1.0, static_cast<double>(monitor->m_size.y) * renderScaleForMonitor(monitor));
+        scale *= std::clamp(std::min(fbSize.x / monitorPixelWidth, fbSize.y / monitorPixelHeight), 0.0, 1.0);
+    }
+    return scale;
+}
+
 bool OverviewController::transformSurfaceRenderDataForWindow(const PHLWINDOW& window, const PHLMONITOR& monitor, CSurfacePassElement::SRenderData& renderData) const {
     const auto transform = windowTransformFor(window, monitor);
     if (!transform)
@@ -10826,21 +10834,8 @@ bool OverviewController::transformSurfaceRenderDataForWindow(const PHLWINDOW& wi
     renderData.w = std::max(1.0, renderData.w * transform->scaleX);
     renderData.h = std::max(1.0, renderData.h * transform->scaleY);
     if (!renderData.dontRound && renderData.rounding > 0) {
-        double scale = std::max(0.0, std::min(std::abs(transform->scaleX), std::abs(transform->scaleY)));
-
-        // Strip snapshots render the workspace into a smaller framebuffer first.
-        // Match window rounding to that extra downscale so mini previews do not
-        // keep the full-size corner radius.
-        if (m_stripPreviewContext.active) {
-            const auto   fbSize = m_stripPreviewContext.framebufferSize;
-            const double monitorPixelWidth = std::max(1.0, static_cast<double>(monitor->m_size.x) * renderScaleForMonitor(monitor));
-            const double monitorPixelHeight = std::max(1.0, static_cast<double>(monitor->m_size.y) * renderScaleForMonitor(monitor));
-            const double fbScale =
-                std::clamp(std::min(fbSize.x / monitorPixelWidth, fbSize.y / monitorPixelHeight), 0.0, 1.0);
-            scale *= fbScale;
-        }
-
-        renderData.rounding = std::max(0, static_cast<int>(std::lround(static_cast<double>(renderData.rounding) * scale)));
+        renderData.rounding = scaledOverviewRounding(window->rounding(), renderScaleForMonitor(monitor), previewRoundingScale(*transform, monitor));
+        renderData.roundingPower = window->roundingPower();
         renderData.dontRound = renderData.rounding <= 0;
     }
 
@@ -15778,34 +15773,15 @@ const OverviewController::ManagedWindow* OverviewController::focusedManagedForBo
     return focusedManaged;
 }
 
-bool OverviewController::borderUsesTransformedGeometry(const State& state) const {
-    if (m_gestureSession.active)
-        return false;
+Rect OverviewController::managedWindowBorderRect(const ManagedWindow& managed, const PHLMONITOR& renderMonitor, bool useTargetGeometry) const {
+    if (const auto transform = windowTransformFor(managed.window, renderMonitor))
+        return transform->targetGlobal;
 
-    if (state.phase == Phase::Opening || state.phase == Phase::ClosingSettle || state.phase == Phase::Closing)
-        return false;
-
-    if (state.phase == Phase::Active && state.relayoutActive)
-        return usesDirectNiriScrollingOverview(state);
-
-    return true;
-}
-
-Rect OverviewController::managedWindowBorderRect(const ManagedWindow& managed, const PHLMONITOR& renderMonitor, const State& state, bool useTargetGeometry,
-                                                 bool forceTransformedGeometry) const {
-    Rect rect = useTargetGeometry ? managed.targetGlobal : currentPreviewRect(managed);
-    const bool directNiriDraggedWindow = m_niriDragSession.active && m_niriDragSession.window.lock() == managed.window;
-
-    if (forceTransformedGeometry || directNiriDraggedWindow || borderUsesTransformedGeometry(state)) {
-        if (const auto transform = windowTransformFor(managed.window, renderMonitor))
-            rect = transform->targetGlobal;
-    }
-
-    return snapRectToRenderPixelGrid(rect, renderMonitor);
+    return useTargetGeometry ? managed.targetGlobal : currentPreviewRect(managed);
 }
 
 int OverviewController::managedWindowBorderRound(const ManagedWindow& managed, const PHLMONITOR& renderMonitor) const {
-    if (!managed.window || !renderMonitor)
+    if (!managed.window || !renderMonitor || hyprland_compat::windowIsEffectiveFullscreen(managed.window, FSMODE_FULLSCREEN))
         return 0;
 
     const double baseRound = std::max(0.0, static_cast<double>(managed.window->rounding()));
@@ -15814,17 +15790,9 @@ int OverviewController::managedWindowBorderRound(const ManagedWindow& managed, c
 
     double scale = 1.0;
     if (const auto transform = windowTransformFor(managed.window, renderMonitor))
-        scale = std::max(0.0, std::min(std::abs(transform->scaleX), std::abs(transform->scaleY)));
+        scale = previewRoundingScale(*transform, renderMonitor);
 
-    if (m_stripPreviewContext.active) {
-        const auto   fbSize = m_stripPreviewContext.framebufferSize;
-        const double monitorPixelWidth = std::max(1.0, static_cast<double>(renderMonitor->m_size.x) * renderScaleForMonitor(renderMonitor));
-        const double monitorPixelHeight = std::max(1.0, static_cast<double>(renderMonitor->m_size.y) * renderScaleForMonitor(renderMonitor));
-        const double fbScale = std::clamp(std::min(fbSize.x / monitorPixelWidth, fbSize.y / monitorPixelHeight), 0.0, 1.0);
-        scale *= fbScale;
-    }
-
-    return std::max(0, static_cast<int>(std::lround(baseRound * scale * overviewBorderRoundingScale())));
+    return scaledOverviewRounding(baseRound, renderScaleForMonitor(renderMonitor), scale);
 }
 
 float OverviewController::managedWindowBorderRoundingPower(const ManagedWindow& managed) const {
@@ -15893,28 +15861,18 @@ void OverviewController::queueStackedSwapBorder(const State& state, const Manage
         return;
 
     const double thickness = focused ? std::max(1.0, configuredWidth - focusedBorderThicknessReduction()) : configuredWidth;
-    const Rect   local = rectToMonitorRenderLocal(managedWindowBorderRect(managed, renderMonitor, state, false, true), renderMonitor);
-    if (local.width <= 0.0 || local.height <= 0.0)
-        return;
-
-    constexpr double BORDER_INSET_PX = 1.0;
-    const double     x1 = std::floor(local.x);
-    const double     y1 = std::floor(local.y);
-    const double     x2 = std::ceil(local.x + local.width);
-    const double     y2 = std::ceil(local.y + local.height);
-    const Rect       aligned = makeRect(x1 + BORDER_INSET_PX, y1 + BORDER_INSET_PX,
-                                  std::max(0.0, (x2 - x1) - BORDER_INSET_PX * 2.0),
-                                  std::max(0.0, (y2 - y1) - BORDER_INSET_PX * 2.0));
-    if (aligned.width <= 0.0 || aligned.height <= 0.0)
+    const CBox   box = toBox(rectToMonitorRenderLocal(managedWindowBorderRect(managed, renderMonitor, false), renderMonitor)).round();
+    if (box.width <= 0.0 || box.height <= 0.0)
         return;
 
     CBorderPassElement::SBorderData data;
-    data.box = toBox(aligned);
+    data.box = box;
     data.grad1 = focused ? activeBorderGradient() : inactiveBorderGradient();
     data.round = managedWindowBorderRound(managed, renderMonitor);
     data.roundingPower = managedWindowBorderRoundingPower(managed);
     data.a = 0.95F;
     data.borderSize = std::max(1, static_cast<int>(std::lround(thickness)));
+    data.outerRound = overviewBorderOuterRounding(data.round, data.roundingPower, data.borderSize, renderScaleForMonitor(renderMonitor));
     data.window = managed.window;
     g_pHyprRenderer->m_renderPass.add(makeUnique<CBorderPassElement>(data));
 }
@@ -15942,7 +15900,7 @@ void OverviewController::renderInactiveWindowBorders(const State& state, double 
         if (usesStackedSwapBorder(state, managed, renderMonitor))
             continue;
 
-        renderOutline(managedWindowBorderRect(managed, renderMonitor, state, useTargetGeometry, true), inactiveGradient, thickness, 0.95 * progress,
+        renderOutline(managedWindowBorderRect(managed, renderMonitor, useTargetGeometry), inactiveGradient, thickness, 0.95 * progress,
                       managedWindowBorderRound(managed, renderMonitor), managedWindowBorderRoundingPower(managed));
     }
 }
@@ -15967,7 +15925,7 @@ void OverviewController::renderFocusedWindowBorder(const State& state, double pr
     if (usesStackedSwapBorder(state, *focusedManaged, renderMonitor))
         return;
 
-    renderOutline(managedWindowBorderRect(*focusedManaged, renderMonitor, state, useTargetGeometry), activeBorderGradient(), thickness, 0.95 * progress,
+    renderOutline(managedWindowBorderRect(*focusedManaged, renderMonitor, useTargetGeometry), activeBorderGradient(), thickness, 0.95 * progress,
                   managedWindowBorderRound(*focusedManaged, renderMonitor), managedWindowBorderRoundingPower(*focusedManaged));
 }
 
@@ -15995,27 +15953,17 @@ void OverviewController::renderOutline(const Rect& rect, const Config::CGradient
     if (!renderMonitor || gradient.m_colors.empty())
         return;
 
-    const Rect local = rectToMonitorRenderLocal(rect, renderMonitor);
-    if (local.width <= 0.0 || local.height <= 0.0)
-        return;
-
-    const double x1 = std::floor(local.x);
-    const double y1 = std::floor(local.y);
-    const double x2 = std::ceil(local.x + local.width);
-    const double y2 = std::ceil(local.y + local.height);
-    constexpr double BORDER_INSET_PX = 1.0;
-    const Rect       aligned = makeRect(x1 + BORDER_INSET_PX, y1 + BORDER_INSET_PX,
-                                  std::max(0.0, (x2 - x1) - BORDER_INSET_PX * 2.0),
-                                  std::max(0.0, (y2 - y1) - BORDER_INSET_PX * 2.0));
-    if (aligned.width <= 0.0 || aligned.height <= 0.0)
+    const CBox box = toBox(rectToMonitorRenderLocal(rect, renderMonitor)).round();
+    if (box.width <= 0.0 || box.height <= 0.0)
         return;
 
     const int borderThickness = std::max(1, static_cast<int>(std::lround(thickness)));
-    g_pHyprOpenGL->renderBorder(toBox(aligned), gradient,
+    g_pHyprOpenGL->renderBorder(box, gradient,
                                 {.round = std::max(0, round),
                                  .roundingPower = std::max(0.01F, roundingPower),
                                  .borderSize = borderThickness,
-                                 .a = static_cast<float>(std::clamp(alpha, 0.0, 1.0))});
+                                 .a = static_cast<float>(std::clamp(alpha, 0.0, 1.0)),
+                                 .outerRound = overviewBorderOuterRounding(round, roundingPower, borderThickness, renderScaleForMonitor(renderMonitor))});
 }
 
 Rect OverviewController::workspaceStripThumbRect(const WorkspaceStripEntry& entry, const PHLMONITOR& monitor) const {

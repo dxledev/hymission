@@ -43,6 +43,35 @@ bool expectReservation(const WorkspaceStripReservation& actual, const WorkspaceS
     return expectRect(actual.band, expected.band, message) && expectRect(actual.content, expected.content, message);
 }
 
+bool testOverviewRounding() {
+    bool ok = true;
+    ok &= expect(hymission::scaledOverviewRounding(26.4, 1.0, 0.4) == 10,
+                 "overview corners should scale the native radius without a border-only multiplier");
+    ok &= expect(hymission::scaledOverviewRounding(26.4, 1.25, 0.4) == 13,
+                 "overview corners should include fractional monitor scaling");
+    ok &= expect(hymission::scaledOverviewRounding(26.4, 1.25, 1.0) == 33,
+                 "unscaled overview corners should match Hyprland's surface radius");
+    ok &= expect(hymission::scaledOverviewRounding(26.4, 1.25, 1.2) == 40,
+                 "enlarged previews should scale their corners with their surfaces");
+    ok &= expect(hymission::scaledOverviewRounding(26.4, 1.25, 0.4 * 0.25) == 3,
+                 "strip thumbnails should apply their framebuffer downscale to both corner edges");
+    ok &= expect(hymission::scaledOverviewRounding(1.9, 1.0, 0.3) == 0,
+                 "tiny corners should preserve Hyprland's integer surface-pass quantization");
+    ok &= expect(hymission::scaledOverviewRounding(0.0, 2.0, 0.4) == 0,
+                 "square or fullscreen windows should retain square overview corners");
+    ok &= expect(hymission::scaledOverviewRounding(110.0, 1.25, 0.4) == 55,
+                 "Hyprland's power-adjusted radius should not be corrected a second time");
+    ok &= expect(hymission::overviewBorderOuterRounding(13, 2.4F, 2, 1.25) == 15,
+                 "outer corners should include the monitor-scaled border width");
+    ok &= expect(hymission::overviewBorderOuterRounding(13, 10.0F, 2, 1.25) == 15,
+                 "squircle borders should preserve the native rounding power");
+    ok &= expect(hymission::overviewBorderOuterRounding(13, 1.0F, 2, 1.25) == 14,
+                 "outer corners below power two should use Hyprland's diagonal correction");
+    ok &= expect(hymission::overviewBorderOuterRounding(0, 2.4F, 2, 1.25) == 0,
+                 "a square window should not acquire a rounded overview border");
+    return ok;
+}
+
 } // namespace
 
 int main() {
@@ -55,7 +84,7 @@ int main() {
         {140, 140, 100, 100},
     };
 
-    bool ok = true;
+    bool ok = testOverviewRounding();
 
     ok &= expect(hitTest(rects, 50, 50) == std::optional<std::size_t>{0}, "hitTest should find top-left rect");
     ok &= expect(hitTest(rects, 180, 180) == std::optional<std::size_t>{3}, "hitTest should find bottom-right rect");

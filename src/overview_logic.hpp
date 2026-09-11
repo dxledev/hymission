@@ -83,6 +83,8 @@ struct WorkspaceStripReservation {
 [[nodiscard]] std::optional<std::size_t> chooseCyclicIndex(std::size_t count, std::size_t currentIndex, int step = 1);
 [[nodiscard]] Rect                       lerpRect(const Rect& from, const Rect& to, double t);
 [[nodiscard]] Rect                       transformLiveOverviewRect(const Rect& liveRect, const Rect& desktopViewport, const Rect& overviewViewport);
+[[nodiscard]] int                        scaledOverviewRounding(double logicalRounding, double monitorScale, double previewScale);
+[[nodiscard]] int                        overviewBorderOuterRounding(int rounding, float roundingPower, int borderSize, double monitorScale);
 [[nodiscard]] int64_t                    authoritativeOverviewWorkspaceId(bool transitionActive, int64_t transitionTargetId, int64_t committedWorkspaceId);
 [[nodiscard]] double                     easeOutCubic(double t);
 [[nodiscard]] double                     easeInCubic(double t);

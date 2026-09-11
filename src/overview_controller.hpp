@@ -615,7 +615,6 @@ class OverviewController {
     [[nodiscard]] double       activeBorderWidth() const;
     [[nodiscard]] double       inactiveBorderWidth() const;
     [[nodiscard]] double       focusedBorderThicknessReduction() const;
-    [[nodiscard]] double       overviewBorderRoundingScale() const;
     [[nodiscard]] bool         niriModeEnabled() const;
     [[nodiscard]] bool         niriModeAppliesToState(const State& state) const;
     [[nodiscard]] double       niriScrollPixelsPerDelta() const;
@@ -811,6 +810,7 @@ class OverviewController {
     void                       restoreOverviewRenderState();
     [[nodiscard]] SDispatchResult startOverviewWorkspaceTransitionForDispatcher(const std::string& args, bool currentMonitorOnly);
     [[nodiscard]] std::optional<WindowTransform> windowTransformFor(const PHLWINDOW& window, const PHLMONITOR& monitor) const;
+    [[nodiscard]] double                        previewRoundingScale(const WindowTransform& transform, const PHLMONITOR& monitor) const;
     [[nodiscard]] bool                          transformSurfaceRenderDataForWindow(const PHLWINDOW& window, const PHLMONITOR& monitor,
                                                                                    CSurfacePassElement::SRenderData& renderData) const;
     bool                                        adjustTransformedSurfaceBoxSize(const CSurfacePassElement::SRenderData& renderData, const PHLMONITOR& monitor,
@@ -844,9 +844,7 @@ class OverviewController {
     [[nodiscard]] bool                          shouldRenderHiddenStripLayerProxy(const PHLLS& layer, const PHLMONITOR& monitor) const;
     void                                        renderHiddenStripLayerProxies() const;
     [[nodiscard]] const ManagedWindow*          focusedManagedForBorder(const State& state, const PHLMONITOR& renderMonitor) const;
-    [[nodiscard]] bool                          borderUsesTransformedGeometry(const State& state) const;
-    [[nodiscard]] Rect                          managedWindowBorderRect(const ManagedWindow& managed, const PHLMONITOR& renderMonitor, const State& state,
-                                                                        bool useTargetGeometry, bool forceTransformedGeometry = false) const;
+    [[nodiscard]] Rect                          managedWindowBorderRect(const ManagedWindow& managed, const PHLMONITOR& renderMonitor, bool useTargetGeometry) const;
     [[nodiscard]] int                           managedWindowBorderRound(const ManagedWindow& managed, const PHLMONITOR& renderMonitor) const;
     [[nodiscard]] float                         managedWindowBorderRoundingPower(const ManagedWindow& managed) const;
     [[nodiscard]] bool                          usesStackedSwapBorder(const State& state, const ManagedWindow& managed,
