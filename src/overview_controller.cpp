@@ -2720,11 +2720,11 @@ void hkCalculateUVForSurface(void* rendererThisptr, PHLWINDOW window, SP<CWLSurf
     g_controller->calculateUVForSurfaceHook(window, std::move(surface), monitor, main, projSize, projSizeUnscaled, fixMisalignedFSV1);
 }
 
-std::vector<UP<IPassElement>> hkSurfaceDraw(void* surfacePassThisptr) {
+void hkSurfaceDraw(void* rendererThisptr, WP<CSurfacePassElement> element, const CRegion& damage) {
     if (!g_controller)
-        return {};
+        return;
 
-    return g_controller->surfaceDrawHook(surfacePassThisptr);
+    g_controller->surfaceDrawHook(rendererThisptr, std::move(element), damage);
 }
 
 bool hkSurfaceNeedsLiveBlur(void* surfacePassThisptr) {
@@ -6411,15 +6411,16 @@ bool OverviewController::handleTouchUp(const ITouch::SUpEvent& event, bool cance
 
 
 
-std::vector<UP<IPassElement>> OverviewController::surfaceDrawHook(void* surfacePassThisptr) {
-    if (!m_surfaceDrawOriginal) {
-        return {};
-    }
+void OverviewController::surfaceDrawHook(void* rendererThisptr, WP<CSurfacePassElement> element, const CRegion& damage) {
+    if (!m_surfaceDrawOriginal || !element)
+        return;
 
     if (m_surfaceRenderDataTransformDepth > 0) {
-        return m_surfaceDrawOriginal(surfacePassThisptr);
+        m_surfaceDrawOriginal(rendererThisptr, element, damage);
+        return;
     }
 
+    auto* surfacePassThisptr = element.get();
     if ((usesDirectNiriScrollingOverview(m_state) || niriModeAppliesToState(m_state)) &&
         (m_deactivatePending || directNiriNativeHandoffActive())) {
         if (auto* handoffRenderData = surfaceRenderDataMutable(surfacePassThisptr); handoffRenderData && handoffRenderData->pWindow) {
@@ -6429,10 +6430,10 @@ std::vector<UP<IPassElement>> OverviewController::surfaceDrawHook(void* surfaceP
                 const bool savedBlockBlurOptimization = handoffRenderData->blockBlurOptimization;
                 handoffRenderData->blur = false;
                 handoffRenderData->blockBlurOptimization = true;
-                auto result = m_surfaceDrawOriginal(surfacePassThisptr);
+                m_surfaceDrawOriginal(rendererThisptr, element, damage);
                 handoffRenderData->blur = savedBlur;
                 handoffRenderData->blockBlurOptimization = savedBlockBlurOptimization;
-                return result;
+                return;
             }
         }
     }
@@ -6441,7 +6442,8 @@ std::vector<UP<IPassElement>> OverviewController::surfaceDrawHook(void* surfaceP
     PHLMONITOR                        monitor;
     SurfaceRenderDataSnapshot        snapshot;
     if (!prepareSurfaceRenderData(surfacePassThisptr, "draw", renderData, monitor, snapshot)) {
-        return m_surfaceDrawOriginal(surfacePassThisptr);
+        m_surfaceDrawOriginal(rendererThisptr, element, damage);
+        return;
     }
 
     if (debugLogsEnabled() && m_surfaceRenderAlphaOverride) {
@@ -6463,10 +6465,11 @@ std::vector<UP<IPassElement>> OverviewController::surfaceDrawHook(void* surfaceP
     }
 
     ++m_surfaceRenderDataTransformDepth;
-    auto result = m_surfaceDrawOriginal(surfacePassThisptr);
-    --m_surfaceRenderDataTransformDepth;
-    restoreSurfaceRenderData(renderData, snapshot);
-    return result;
+    Hyprutils::Utils::CScopeGuard restoreRenderData([this, renderData, snapshot] {
+        --m_surfaceRenderDataTransformDepth;
+        restoreSurfaceRenderData(renderData, snapshot);
+    });
+    m_surfaceDrawOriginal(rendererThisptr, element, damage);
 }
 
 bool OverviewController::surfaceNeedsLiveBlurHook(void* surfacePassThisptr) {
@@ -6598,8 +6601,13 @@ CRegion OverviewController::surfaceVisibleRegionHook(void* surfacePassThisptr, b
     if (!m_surfaceVisibleRegionOriginal)
         return {};
 
-    if (m_surfaceRenderDataTransformDepth > 0)
+    if (m_surfaceRenderDataTransformDepth > 0) {
+        const auto* renderData = surfaceRenderDataMutable(surfacePassThisptr);
+        const auto  monitor = renderData ? renderData->pMonitor.lock() : PHLMONITOR{};
+        if (monitor)
+            return transformedSurfaceVisibleRegion(surfacePassThisptr, monitor, cancel);
         return m_surfaceVisibleRegionOriginal(surfacePassThisptr, cancel);
+    }
 
     CSurfacePassElement::SRenderData* renderData = nullptr;
     PHLMONITOR                        monitor;
@@ -6608,14 +6616,10 @@ CRegion OverviewController::surfaceVisibleRegionHook(void* surfacePassThisptr, b
         return m_surfaceVisibleRegionOriginal(surfacePassThisptr, cancel);
 
     ++m_surfaceRenderDataTransformDepth;
-    CBox fullBox = m_surfaceTexBoxOriginal(surfacePassThisptr);
-    adjustTransformedSurfaceBoxSize(*renderData, monitor, fullBox);
+    const CRegion region = transformedSurfaceVisibleRegion(surfacePassThisptr, monitor, cancel);
     --m_surfaceRenderDataTransformDepth;
-    fullBox.scale(monitor->m_scale);
-    fullBox.round();
-    cancel = fullBox.width <= 0.0 || fullBox.height <= 0.0;
     restoreSurfaceRenderData(renderData, snapshot);
-    return cancel ? CRegion{} : CRegion(fullBox);
+    return region;
 }
 
 LayoutConfig OverviewController::loadLayoutConfig() const {
@@ -9557,7 +9561,8 @@ bool OverviewController::installHooks() {
         return false;
     }
 
-    if (!hookFunction("draw", "IPassElement::draw(", m_surfaceDrawHook, reinterpret_cast<void*>(&hkSurfaceDraw))) {
+    // Surface passes bypass IPassElement::draw; transform before the renderer reads their clip and rounding.
+    if (!hookFunction("preDrawSurface", "Render::IElementRenderer::preDrawSurface(", m_surfaceDrawHook, reinterpret_cast<void*>(&hkSurfaceDraw))) {
         notify("[hymission] failed to hook surface draw", CHyprColor(1.0, 0.2, 0.2, 1.0), 4000);
         return false;
     }
@@ -10839,15 +10844,8 @@ bool OverviewController::transformSurfaceRenderDataForWindow(const PHLWINDOW& wi
         renderData.dontRound = renderData.rounding <= 0;
     }
 
-    // Keep overview previews independent from the normal-layout monitor clip,
-    // but still clip every transformed surface to Hymission's preview rect.
-    // When a newly-mapped or recently-resized client is between configure/commit
-    // sizes, Hyprland can render a surface whose buffer/viewport is temporarily
-    // larger than the overview preview.  Clearing the clip lets that transient
-    // buffer leak across adjacent workspace lanes for a few seconds.  Clipping to
-    // the overview target preserves off-screen workspace previews without letting
-    // unstable client buffers bleed outside their card.
-    renderData.clipBox = toBox(transform->targetGlobal);
+    // Clip transient oversized buffers to the preview in Hyprland's monitor-local pixel coordinates.
+    renderData.clipBox = toBox(rectToMonitorRenderLocal(transform->targetGlobal, monitor)).round();
 
     return true;
 }
@@ -10879,6 +10877,15 @@ bool OverviewController::adjustTransformedSurfaceBoxSize(const CSurfacePassEleme
     box.width = std::max(1.0, baseSize.x * transform->scaleX);
     box.height = std::max(1.0, baseSize.y * transform->scaleY);
     return true;
+}
+
+CRegion OverviewController::transformedSurfaceVisibleRegion(void* surfacePassThisptr, const PHLMONITOR& monitor, bool& cancel) const {
+    const auto* renderData = surfaceRenderDataMutable(surfacePassThisptr);
+    CBox fullBox = m_surfaceTexBoxOriginal(surfacePassThisptr);
+    adjustTransformedSurfaceBoxSize(*renderData, monitor, fullBox);
+    fullBox.scale(monitor->m_scale).round();
+    cancel = fullBox.width <= 0.0 || fullBox.height <= 0.0;
+    return cancel ? CRegion{} : CRegion(fullBox);
 }
 
 double OverviewController::hiddenStripLayerProgress(const PHLLS& layer, const PHLMONITOR& monitor) const {
@@ -11585,7 +11592,9 @@ bool OverviewController::prepareSurfaceRenderData(void* surfacePassThisptr, cons
         out << "[hymission] surface " << (context ? context : "?") << ' ' << debugWindowLabel(renderData->pWindow) << " main=" << renderData->mainSurface
             << " popup=" << renderData->popup << " monitor=" << monitor->m_name << " pos=" << vectorToString(snapshot.pos) << "->" << vectorToString(renderData->pos)
             << " local=" << vectorToString(snapshot.localPos) << "->" << vectorToString(renderData->localPos) << " size=" << snapshot.w << 'x' << snapshot.h << "->"
-            << renderData->w << 'x' << renderData->h << " alpha=" << snapshot.alpha << "->" << renderData->alpha << " fadeAlpha=" << snapshot.fadeAlpha << "->"
+            << renderData->w << 'x' << renderData->h << " rounding=" << snapshot.rounding << "->" << renderData->rounding
+            << " roundingPower=" << snapshot.roundingPower << "->" << renderData->roundingPower
+            << " alpha=" << snapshot.alpha << "->" << renderData->alpha << " fadeAlpha=" << snapshot.fadeAlpha << "->"
             << renderData->fadeAlpha << " clip=" << boxToString(snapshot.clipBox) << "->"
             << boxToString(renderData->clipBox);
         debugSurfaceLog(out.str());

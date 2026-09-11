@@ -139,7 +139,7 @@ class OverviewController {
     [[nodiscard]] Config::Actions::ActionResult moveToWorkspaceActionHook(PHLWORKSPACE workspace, bool silent, std::optional<PHLWINDOW> window);
     bool                surfaceNeedsLiveBlurHook(void* surfacePassThisptr);
     bool                surfaceNeedsPrecomputeBlurHook(void* surfacePassThisptr);
-    std::vector<UP<IPassElement>> surfaceDrawHook(void* surfacePassThisptr);
+    void                surfaceDrawHook(void* rendererThisptr, WP<CSurfacePassElement> element, const CRegion& damage);
     CBox                surfaceTexBoxHook(void* surfacePassThisptr);
     std::optional<CBox> surfaceBoundingBoxHook(void* surfacePassThisptr);
     CRegion             surfaceOpaqueRegionHook(void* surfacePassThisptr);
@@ -565,7 +565,7 @@ class OverviewController {
     using SurfaceBoundingBoxFn = std::optional<CBox> (*)(void*);
     using SurfaceOpaqueRegionFn = CRegion (*)(void*);
     using SurfaceVisibleRegionFn = CRegion (*)(void*, bool&);
-    using SurfaceDrawFn = std::vector<UP<IPassElement>> (*)(void*);
+    using SurfaceDrawFn = void (*)(void*, WP<CSurfacePassElement>, const CRegion&);
     using SurfaceBlurNeedsFn = bool (*)(void*);
     using ShouldRenderWindowFn = bool (*)(void*, PHLWINDOW, PHLMONITOR);
     using RenderLayerFn = void (*)(void*, PHLLS, PHLMONITOR, const Time::steady_tp&, bool, bool);
@@ -815,6 +815,7 @@ class OverviewController {
                                                                                    CSurfacePassElement::SRenderData& renderData) const;
     bool                                        adjustTransformedSurfaceBoxSize(const CSurfacePassElement::SRenderData& renderData, const PHLMONITOR& monitor,
                                                                                CBox& box) const;
+    [[nodiscard]] CRegion                       transformedSurfaceVisibleRegion(void* surfacePassThisptr, const PHLMONITOR& monitor, bool& cancel) const;
     [[nodiscard]] double                        hiddenStripLayerProgress(const PHLLS& layer, const PHLMONITOR& monitor) const;
     void                                        clearHiddenStripLayerProxies();
     void                                        syncHiddenStripLayerProxies();
