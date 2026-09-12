@@ -258,8 +258,8 @@ constexpr auto   THEME_SURFACE_FEEDBACK_INTERVAL = std::chrono::milliseconds(16)
 constexpr std::size_t THEME_WORKSPACE_FEEDBACK_FRAMES = 3;
 constexpr auto   MISSION_CONTROL_WORKSPACE_NAME = "Mission Control";
 constexpr auto   MISSION_CONTROL_HIDDEN_WORKSPACE_PREFIX = "__hymission_hidden__:";
-constexpr auto   DEFAULT_HIDE_BAR_NAMESPACES = "hypr-dock,waybar,chromack,wardnc,wardbnc,dashboard,rofi";
-constexpr auto   DEFAULT_HIDE_OVERVIEW_LAYER_NAMESPACES = "chromack,wardnc,wardbnc,dashboard,rofi";
+constexpr auto   DEFAULT_HIDE_NAMESPACES_OVERVIEW = "hypr-dock,waybar,chromack,wardnc,wardbnc,dashboard,rofi";
+constexpr auto   DEFAULT_HIDE_NAMESPACE_OVERVIEW_NIRI_SCROLLING = "chromack,wardnc,wardbnc,dashboard,rofi";
 constexpr double DIRECT_NIRI_NATIVE_HANDOFF_VISUAL_EPSILON = 0.004;
 constexpr auto   DIRECT_NIRI_NATIVE_HANDOFF_GUARD_DURATION = std::chrono::milliseconds(120);
 OverviewController* g_controller = nullptr;
@@ -5870,7 +5870,7 @@ bool OverviewController::shouldHideLayerSurface(const PHLLS& layer, const PHLMON
 
     const bool emptyDirectNiriOwnerMonitor = monitor == m_state.ownerMonitor && m_state.collectionPolicy.onlyActiveWorkspace && m_state.windows.empty() &&
         niriModeAppliesToState(m_state) && centeredEmptyWorkspacePlaceholder(m_state);
-    const bool hideBarLayer = layerResource->m_current.exclusive > 0 || shouldHideLayerSurfaceNamespace(layer, hideBarNamespaces());
+    const bool hideBarLayer = layerResource->m_current.exclusive > 0 || shouldHideLayerSurfaceNamespace(layer, hideNamespacesOverview());
 
     if (emptyDirectNiriOwnerMonitor && hideBarLayer) {
         // Keep the live layer visible until the first safe delayed proxy capture
@@ -5885,18 +5885,14 @@ bool OverviewController::shouldHideLayerSurface(const PHLLS& layer, const PHLMON
     if (isRetainedNiriWallpaperLayoutLayer(layer, monitor))
         return true;
 
+    if (usesDirectNiriScrollingOverview(m_state) || niriModeAppliesToState(m_state))
+        return hideOverviewLayersEnabled() && shouldHideLayerSurfaceNamespace(layer, hideNamespaceOverviewNiriScrolling());
+
     if (workspaceStripEnabled(m_state) && hideBarsWhenStripShownEnabled())
         return hideBarLayer;
 
-    if (usesDirectNiriScrollingOverview(m_state) || niriModeAppliesToState(m_state)) {
-        if (hideBarsWhenStripShownEnabled() && (layerResource->m_current.exclusive > 0 || shouldHideLayerSurfaceNamespace(layer, hideBarNamespaces())))
-            return true;
-
-        return hideOverviewLayersEnabled() && shouldHideLayerSurfaceNamespace(layer, hideOverviewLayerNamespaces());
-    }
-
     return hideOverviewLayersEnabled() && m_state.collectionPolicy.requestedScope == ScopeOverride::ForceAll &&
-        shouldHideLayerSurfaceNamespace(layer, hideOverviewLayerNamespaces());
+        shouldHideLayerSurfaceNamespace(layer, hideNamespacesOverview());
 }
 
 bool OverviewController::shouldHideLayerSurfaceNamespace(const PHLLS& layer, const std::string& namespaces) const {
@@ -6793,16 +6789,16 @@ bool OverviewController::hideBarsWhenStripShownEnabled() const {
     return getConfigInt(m_handle, "plugin:hymission:hide_bar_when_strip", 1) != 0;
 }
 
-std::string OverviewController::hideBarNamespaces() const {
-    return getConfigString(m_handle, "plugin:hymission:hide_bar_namespaces", DEFAULT_HIDE_BAR_NAMESPACES);
+std::string OverviewController::hideNamespacesOverview() const {
+    return getConfigString(m_handle, "plugin:hymission:hide_namespaces_overview", DEFAULT_HIDE_NAMESPACES_OVERVIEW);
 }
 
 bool OverviewController::hideOverviewLayersEnabled() const {
     return getConfigInt(m_handle, "plugin:hymission:hide_layers_when_overview", 1) != 0;
 }
 
-std::string OverviewController::hideOverviewLayerNamespaces() const {
-    return getConfigString(m_handle, "plugin:hymission:hide_overview_layer_namespaces", DEFAULT_HIDE_OVERVIEW_LAYER_NAMESPACES);
+std::string OverviewController::hideNamespaceOverviewNiriScrolling() const {
+    return getConfigString(m_handle, "plugin:hymission:hide_namespace_overview_niri_scrolling", DEFAULT_HIDE_NAMESPACE_OVERVIEW_NIRI_SCROLLING);
 }
 
 bool OverviewController::hideBarAnimationEffectsEnabled() const {
@@ -10949,7 +10945,7 @@ bool OverviewController::isNiriWallpaperLayoutLayerCandidate(const PHLLS& layer,
         layer->m_monitor.lock() != monitor || layer->m_layer != ZWLR_LAYER_SHELL_V1_LAYER_TOP)
         return false;
 
-    return shouldHideLayerSurfaceNamespace(layer, hideBarNamespaces());
+    return hideOverviewLayersEnabled() && shouldHideLayerSurfaceNamespace(layer, hideNamespaceOverviewNiriScrolling());
 }
 
 bool OverviewController::isRetainedNiriWallpaperLayoutLayer(const PHLLS& layer, const PHLMONITOR& monitor) const {

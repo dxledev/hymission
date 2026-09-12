@@ -602,9 +602,9 @@ class OverviewController {
     [[nodiscard]] bool         closeSpecialWorkspacesOnOpenEnabled() const;
     [[nodiscard]] std::chrono::milliseconds postCloseCrossScopeDebounce() const;
     [[nodiscard]] bool         hideBarsWhenStripShownEnabled() const;
-    [[nodiscard]] std::string  hideBarNamespaces() const;
+    [[nodiscard]] std::string  hideNamespacesOverview() const;
     [[nodiscard]] bool         hideOverviewLayersEnabled() const;
-    [[nodiscard]] std::string  hideOverviewLayerNamespaces() const;
+    [[nodiscard]] std::string  hideNamespaceOverviewNiriScrolling() const;
     [[nodiscard]] bool         hideBarAnimationEffectsEnabled() const;
     [[nodiscard]] bool         hideBarAnimationBlurEnabled() const;
     [[nodiscard]] double       hideBarAnimationMoveMultiplier() const;
