@@ -40,6 +40,7 @@
 #endif
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
+#include <hyprland/src/protocols/LayerShell.hpp>
 
 namespace hymission {
 
@@ -8216,6 +8217,13 @@ void OverviewController::renderNiriWorkspaceBackgrounds() const {
     std::vector<WallpaperBackgroundRenderItem> renderItems;
 
     const auto wallpaperTexture = niriWallpaperTextureForMonitor(renderMonitor);
+    const auto wallpaperSnapshot = std::find_if(m_niriWallpaperSnapshots.begin(), m_niriWallpaperSnapshots.end(),
+                                                [&](const NiriWallpaperSnapshot& snapshot) {
+                                                    return snapshot.monitor == renderMonitor && snapshot.layer &&
+                                                        snapshot.layer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND && snapshot.framebuffer &&
+                                                        snapshot.framebuffer->isAllocated();
+                                                });
+    const PHLLS wallpaperLayer = wallpaperSnapshot == m_niriWallpaperSnapshots.end() ? PHLLS{} : wallpaperSnapshot->layer;
     const auto addWorkspace = [&](const State& state, const EmptyWorkspacePlaceholder& background, const Rect& viewportRect, double alpha) {
         if (background.monitor != renderMonitor || alpha <= 0.001)
             return;
@@ -8250,8 +8258,57 @@ void OverviewController::renderNiriWorkspaceBackgrounds() const {
         color.a *= renderAlpha;
         g_pHyprOpenGL->renderRect(toBox(renderRect), color, {});
     };
+    const auto renderCapturedWallpaperLayers = [&](const State& state, const EmptyWorkspacePlaceholder& background, const Rect& viewportRect,
+                                                    double alpha) {
+        const double monitorRenderWidth = std::max(1.0, static_cast<double>(renderMonitor->m_size.x) * renderScaleForMonitor(renderMonitor));
+        const double monitorRenderHeight = std::max(1.0, static_cast<double>(renderMonitor->m_size.y) * renderScaleForMonitor(renderMonitor));
+        const float  layerAlpha = static_cast<float>(clampUnit(alpha));
+        if (layerAlpha <= 0.001F)
+            return;
+
+        for (const auto& snapshot : m_niriWallpaperSnapshots) {
+            if (snapshot.monitor != renderMonitor || !snapshot.layer || snapshot.layer == wallpaperLayer || !snapshot.framebuffer ||
+                !snapshot.framebuffer->isAllocated() || !snapshot.framebuffer->getTexture())
+                continue;
+
+            const Rect capturedRect = snapshot.capturedRectGlobal;
+            if (capturedRect.width <= 1.0 || capturedRect.height <= 1.0)
+                continue;
+
+            const Rect layerGlobal = niriWorkspaceSurfaceRect(state, background, viewportRect, capturedRect);
+            const Rect layerRender = scaleRectForRender(rectToMonitorLocal(layerGlobal, renderMonitor), renderMonitor);
+            if (layerRender.width <= 0.0 || layerRender.height <= 0.0)
+                continue;
+
+            auto*       framebuffer = snapshot.framebuffer.get();
+            const Rect  capturedRenderLocal = scaleRectForRender(rectToMonitorLocal(capturedRect, renderMonitor), renderMonitor);
+            const bool sourceMatchesMonitor = std::abs(framebuffer->m_size.x - monitorRenderWidth) <= 2.0 &&
+                std::abs(framebuffer->m_size.y - monitorRenderHeight) <= 2.0;
+            Vector2D uvTopLeft{0.0, 0.0};
+            Vector2D uvBottomRight{1.0, 1.0};
+            if (sourceMatchesMonitor) {
+                uvTopLeft = {
+                    std::clamp(capturedRenderLocal.x / framebuffer->m_size.x, 0.0, 1.0),
+                    std::clamp(capturedRenderLocal.y / framebuffer->m_size.y, 0.0, 1.0),
+                };
+                uvBottomRight = {
+                    std::clamp((capturedRenderLocal.x + capturedRenderLocal.width) / framebuffer->m_size.x, 0.0, 1.0),
+                    std::clamp((capturedRenderLocal.y + capturedRenderLocal.height) / framebuffer->m_size.y, 0.0, 1.0),
+                };
+            }
+
+            g_pHyprOpenGL->renderTexture(framebuffer->getTexture(), toBox(layerRender),
+                                         {
+                                             .a = layerAlpha,
+                                             .allowCustomUV = true,
+                                             .primarySurfaceUVTopLeft = uvTopLeft,
+                                             .primarySurfaceUVBottomRight = uvBottomRight,
+                                         });
+        }
+    };
     const auto renderWorkspace = [&](const State& state, const EmptyWorkspacePlaceholder& background, const Rect& viewportRect, double alpha) {
         renderBackground(niriWorkspaceBackgroundRect(state, background, viewportRect), alpha);
+        renderCapturedWallpaperLayers(state, background, viewportRect, alpha);
 
         const bool hasWorkspaceSpecificProxy = std::any_of(m_hiddenStripLayerProxies.begin(), m_hiddenStripLayerProxies.end(), [&](const HiddenStripLayerProxy& proxy) {
             return proxy.layer && proxy.monitor == renderMonitor && proxy.niriWallpaperLayoutLayer &&

@@ -269,6 +269,7 @@ class OverviewController {
     struct NiriWallpaperSnapshot {
         PHLMONITOR               monitor;
         PHLLS                    layer;
+        Rect                     capturedRectGlobal;
         SP<Render::IFramebuffer> framebuffer;
     };
 

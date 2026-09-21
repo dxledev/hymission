@@ -76,6 +76,8 @@ bool testNamespacePatterns() {
     bool ok = true;
     ok &= expect(hymission::matchesNamespacePattern("awww-daemon", "awww-daemon"), "namespace patterns should preserve exact matches");
     ok &= expect(hymission::matchesNamespacePattern("noctalia-wallpaper", "noctalia-.*"), "namespace patterns should support regex wildcards");
+    ok &= expect(hymission::matchesNamespacePattern("noctalia-desktop-widget-clock-0001", "noctalia-desktop-widget-.*"),
+                 "namespace patterns should match widget namespace suffixes");
     ok &= expect(!hymission::matchesNamespacePattern("noctalia-wallpaper-extra", "noctalia-.*wallpaper"),
                  "namespace regexes should match the complete namespace");
     ok &= expect(!hymission::matchesNamespacePattern("waybar", "waydbar"), "non-matching namespace regexes should be rejected");

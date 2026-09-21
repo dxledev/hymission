@@ -10930,7 +10930,7 @@ bool OverviewController::isNiriWallpaperLayer(const PHLLS& layer, const PHLMONIT
 
     const auto layerMonitor = layer->m_monitor.lock();
     return layerMonitor == monitor && layer->m_mapped && !hyprland_compat::layerIsReadyToDelete(layer) &&
-        layer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND &&
+        (layer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND || layer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM) &&
         shouldHideLayerSurfaceNamespace(layer, niriModeWallpaperZoomLayerNamespaces());
 }
 
@@ -10985,40 +10985,35 @@ void OverviewController::syncNiriWallpaperSnapshots() {
         if (!monitor || !niriWallpaperZoomAppliesToMonitor(m_state, monitor))
             continue;
 
-        PHLLS wallpaperLayer;
-        for (const auto& layerRef : monitor->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND]) {
-            const auto layer = layerRef.lock();
+        const auto captureLayer = [&](const PHLLS& layer) {
             if (!isNiriWallpaperLayer(layer, monitor))
-                continue;
+                return;
 
-            wallpaperLayer = layer;
-            break;
-        }
+            const auto framebuffer = captureLayerFramebuffer(layer);
+            if (!framebuffer || !framebuffer->isAllocated() || !framebuffer->getTexture()) {
+                if (debugLogsEnabled())
+                    debugLog("[hymission] niri wallpaper snapshot capture failed namespace=" + layer->m_namespace + " monitor=" + monitor->m_name);
+                return;
+            }
 
-        if (!wallpaperLayer) {
-            if (debugLogsEnabled())
-                debugLog("[hymission] niri wallpaper snapshot missing layer monitor=" + monitor->m_name);
-            continue;
-        }
+            setFramebufferLinearFiltering(*framebuffer);
+            m_niriWallpaperSnapshots.push_back({
+                .monitor = monitor,
+                .layer = layer,
+                .capturedRectGlobal = makeRect(layer->m_geometry.x, layer->m_geometry.y, layer->m_geometry.w, layer->m_geometry.h),
+                .framebuffer = framebuffer,
+            });
+            if (debugLogsEnabled()) {
+                std::ostringstream out;
+                out << "[hymission] niri wallpaper snapshot captured namespace=" << layer->m_namespace << " monitor=" << monitor->m_name
+                    << " layer=" << layer->m_layer << " fb=(" << framebuffer->m_size.x << 'x' << framebuffer->m_size.y << ')';
+                debugLog(out.str());
+            }
+        };
 
-        const auto framebuffer = captureLayerFramebuffer(wallpaperLayer);
-        if (!framebuffer || !framebuffer->isAllocated() || !framebuffer->getTexture()) {
-            if (debugLogsEnabled())
-                debugLog("[hymission] niri wallpaper snapshot capture failed namespace=" + wallpaperLayer->m_namespace + " monitor=" + monitor->m_name);
-            continue;
-        }
-
-        setFramebufferLinearFiltering(*framebuffer);
-        m_niriWallpaperSnapshots.push_back({
-            .monitor = monitor,
-            .layer = wallpaperLayer,
-            .framebuffer = framebuffer,
-        });
-        if (debugLogsEnabled()) {
-            std::ostringstream out;
-            out << "[hymission] niri wallpaper snapshot captured namespace=" << wallpaperLayer->m_namespace << " monitor=" << monitor->m_name
-                << " fb=(" << framebuffer->m_size.x << 'x' << framebuffer->m_size.y << ')';
-            debugLog(out.str());
+        for (const auto layerKind : {ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND, ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM}) {
+            for (const auto& layerRef : monitor->m_layerSurfaceLayers[layerKind])
+                captureLayer(layerRef.lock());
         }
     }
 }
@@ -11026,7 +11021,9 @@ void OverviewController::syncNiriWallpaperSnapshots() {
 SP<Render::ITexture> OverviewController::niriWallpaperTextureForMonitor(const PHLMONITOR& monitor) const {
     const auto it = std::find_if(m_niriWallpaperSnapshots.begin(), m_niriWallpaperSnapshots.end(),
                                  [&](const NiriWallpaperSnapshot& snapshot) {
-                                     return snapshot.monitor == monitor && snapshot.framebuffer && snapshot.framebuffer->isAllocated();
+                                     return snapshot.monitor == monitor && snapshot.layer &&
+                                         snapshot.layer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND && snapshot.framebuffer &&
+                                         snapshot.framebuffer->isAllocated();
                                  });
     return it == m_niriWallpaperSnapshots.end() ? nullptr : it->framebuffer->getTexture();
 }
