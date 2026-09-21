@@ -9969,6 +9969,11 @@ void OverviewController::restoreWrappedDispatchers() {
     };
 
     for (auto& [name, original] : g_openingDispatcherGateOriginals) {
+        if (isPluginOwnedDispatcher(name)) {
+            original = nullptr;
+            continue;
+        }
+
         if (original)
             g_pKeybindManager->m_dispatchers[name] = std::move(original);
     }
