@@ -366,6 +366,10 @@ bool isOverviewEditingDispatcherCandidate(std::string_view name) {
         lowered.find("window.float") != std::string::npos || lowered.find("window.pin") != std::string::npos;
 }
 
+bool isPluginOwnedDispatcher(std::string_view name) {
+    return name.starts_with("plugin:");
+}
+
 
 bool isOverviewToggleControlDispatcher(std::string_view dispatcherName) {
     std::string lowered{dispatcherName};
@@ -9655,7 +9659,7 @@ bool OverviewController::installHooks() {
     };
     if (g_pKeybindManager) {
         for (const auto& [name, _] : g_pKeybindManager->m_dispatchers) {
-            if (!isOverviewEditingDispatcherCandidate(name))
+            if (isPluginOwnedDispatcher(name) || !isOverviewEditingDispatcherCandidate(name))
                 continue;
             if (std::ranges::find(overviewEditingDispatchers, name) == overviewEditingDispatchers.end())
                 overviewEditingDispatchers.push_back(name);
@@ -9684,6 +9688,8 @@ bool OverviewController::installHooks() {
             dispatcherNames.push_back(name);
 
         for (const auto& name : dispatcherNames) {
+            if (isPluginOwnedDispatcher(name))
+                continue;
             if (g_openingDispatcherGateOriginals.contains(name))
                 continue;
 
