@@ -102,6 +102,7 @@ struct WorkspaceStripReservation {
                                                                                 bool timedCommitTransition, bool niriSingleWorkspaceTransition);
 
 // Configuration parsing and scrolling-direction normalization.
+[[nodiscard]] bool                     matchesNamespacePattern(std::string_view namespaceValue, std::string_view pattern);
 [[nodiscard]] WorkspaceStripAnchor parseWorkspaceStripAnchor(std::string_view value);
 [[nodiscard]] WorkspaceStripEmptyMode parseWorkspaceStripEmptyMode(std::string_view value);
 [[nodiscard]] std::optional<HymissionScrollMode> parseHymissionScrollMode(std::string_view value);

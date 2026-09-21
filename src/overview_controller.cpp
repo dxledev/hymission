@@ -5904,7 +5904,7 @@ bool OverviewController::shouldHideLayerSurfaceNamespace(const PHLLS& layer, con
         return false;
 
     for (const auto& configuredNamespace : splitCommaTokens(namespaces)) {
-        if (!configuredNamespace.empty() && configuredNamespace == layerNamespace)
+        if (matchesNamespacePattern(layerNamespace, configuredNamespace))
             return true;
     }
 

@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cmath>
 #include <limits>
+#include <regex>
 #include <string_view>
 
 namespace hymission
@@ -64,6 +65,21 @@ bool equalsAsciiInsensitive(std::string_view value, std::string_view expected) {
 }
 
 } // namespace
+
+bool matchesNamespacePattern(std::string_view namespaceValue, std::string_view pattern) {
+    if (pattern.empty())
+        return false;
+
+    if (pattern.find_first_of("\\.^$|()[]{}+*?") == std::string_view::npos)
+        return namespaceValue == pattern;
+
+    try {
+        const std::regex expression{std::string{pattern}, std::regex::ECMAScript};
+        return std::regex_match(std::string{namespaceValue}, expression);
+    } catch (const std::regex_error&) {
+        return false;
+    }
+}
 
 int scaledOverviewRounding(double logicalRounding, double monitorScale, double previewScale) {
     // Hyprland truncates the monitor-scaled radius before the surface pass.

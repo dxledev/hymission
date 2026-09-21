@@ -72,6 +72,18 @@ bool testOverviewRounding() {
     return ok;
 }
 
+bool testNamespacePatterns() {
+    bool ok = true;
+    ok &= expect(hymission::matchesNamespacePattern("awww-daemon", "awww-daemon"), "namespace patterns should preserve exact matches");
+    ok &= expect(hymission::matchesNamespacePattern("noctalia-wallpaper", "noctalia-.*"), "namespace patterns should support regex wildcards");
+    ok &= expect(!hymission::matchesNamespacePattern("noctalia-wallpaper-extra", "noctalia-.*wallpaper"),
+                 "namespace regexes should match the complete namespace");
+    ok &= expect(!hymission::matchesNamespacePattern("waybar", "waydbar"), "non-matching namespace regexes should be rejected");
+    ok &= expect(!hymission::matchesNamespacePattern("waybar", "*"), "invalid namespace regexes should be ignored");
+    ok &= expect(!hymission::matchesNamespacePattern("[", "["), "invalid regex metacharacters should not fall back to literal matching");
+    return ok;
+}
+
 } // namespace
 
 int main() {
@@ -85,6 +97,7 @@ int main() {
     };
 
     bool ok = testOverviewRounding();
+    ok &= testNamespacePatterns();
 
     ok &= expect(hitTest(rects, 50, 50) == std::optional<std::size_t>{0}, "hitTest should find top-left rect");
     ok &= expect(hitTest(rects, 180, 180) == std::optional<std::size_t>{3}, "hitTest should find bottom-right rect");
