@@ -118,6 +118,7 @@ class OverviewOverlayPassElement final : public IPassElement {
             return {};
         }
 
+        m_controller->renderNiriWorkspaceBackgrounds(true);
         m_controller->renderHiddenStripLayerProxies();
         m_controller->renderEmptyOverviewPlaceholder();
         m_controller->renderSelectionChrome();
@@ -5874,7 +5875,8 @@ bool OverviewController::shouldHideLayerSurface(const PHLLS& layer, const PHLMON
 
     const bool emptyDirectNiriOwnerMonitor = monitor == m_state.ownerMonitor && m_state.collectionPolicy.onlyActiveWorkspace && m_state.windows.empty() &&
         niriModeAppliesToState(m_state) && centeredEmptyWorkspacePlaceholder(m_state);
-    const bool hideBarLayer = layerResource->m_current.exclusive > 0 || shouldHideLayerSurfaceNamespace(layer, hideNamespacesOverview());
+    const bool hideBarLayer = layerResource->m_current.exclusive > 0 || shouldHideLayerSurfaceNamespace(layer, hideNamespacesOverview()) ||
+        isNiriWallpaperLayoutLayerCandidate(layer, monitor);
 
     if (emptyDirectNiriOwnerMonitor && hideBarLayer) {
         // Keep the live layer visible until the first safe delayed proxy capture
@@ -10953,10 +10955,13 @@ bool OverviewController::isNiriWallpaperLayoutLayerCandidate(const PHLLS& layer,
     if (isNiriWallpaperLayoutLayer(layer, monitor))
         return true;
     if (!layer || !monitor || !niriWallpaperZoomAppliesToMonitor(m_state, monitor) || !layer->m_mapped || hyprland_compat::layerIsReadyToDelete(layer) ||
-        layer->m_monitor.lock() != monitor || layer->m_layer != ZWLR_LAYER_SHELL_V1_LAYER_TOP)
+        layer->m_monitor.lock() != monitor ||
+        (layer->m_layer != ZWLR_LAYER_SHELL_V1_LAYER_TOP && layer->m_layer != ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY))
         return false;
 
-    return hideOverviewLayersEnabled() && shouldHideLayerSurfaceNamespace(layer, hideNamespaceOverviewNiriScrolling());
+    return shouldHideLayerSurfaceNamespace(layer, niriModeWallpaperZoomLayerNamespaces()) ||
+        (layer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP && hideOverviewLayersEnabled() &&
+         shouldHideLayerSurfaceNamespace(layer, hideNamespaceOverviewNiriScrolling()));
 }
 
 bool OverviewController::isRetainedNiriWallpaperLayoutLayer(const PHLLS& layer, const PHLMONITOR& monitor) const {
@@ -11081,7 +11086,7 @@ OverviewController::HiddenStripLayerProxy* OverviewController::hiddenStripLayerP
 bool OverviewController::captureHiddenStripLayerProxy(const PHLLS& layer, const PHLMONITOR& monitor) {
     const bool allowEmptyDirectNiriLayoutLayerCapture = layer && monitor && monitor == m_state.ownerMonitor &&
         m_state.collectionPolicy.onlyActiveWorkspace && m_state.windows.empty() && niriModeAppliesToState(m_state) &&
-        centeredEmptyWorkspacePlaceholder(m_state) && isNiriWallpaperLayoutLayer(layer, monitor);
+        centeredEmptyWorkspacePlaceholder(m_state) && isNiriWallpaperLayoutLayerCandidate(layer, monitor);
 
     if (!layer || !monitor || !g_pHyprRenderer || !g_pHyprOpenGL || (!shouldHideLayerSurface(layer, monitor) && !allowEmptyDirectNiriLayoutLayerCapture))
         return false;

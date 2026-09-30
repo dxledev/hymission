@@ -8200,7 +8200,7 @@ Rect OverviewController::niriWorkspaceBackgroundRect(const State& state, const E
     return niriWorkspaceSurfaceRect(state, background, viewportRect,
                                     makeRect(desktopBox.x, desktopBox.y, desktopBox.width, desktopBox.height));
 }
-void OverviewController::renderNiriWorkspaceBackgrounds() const {
+void OverviewController::renderNiriWorkspaceBackgrounds(bool foregroundOnly) const {
     const auto renderMonitor = g_pHyprRenderer->m_renderData.pMonitor.lock();
     if (!niriWallpaperZoomAppliesToMonitor(m_state, renderMonitor))
         return;
@@ -8307,8 +8307,10 @@ void OverviewController::renderNiriWorkspaceBackgrounds() const {
         }
     };
     const auto renderWorkspace = [&](const State& state, const EmptyWorkspacePlaceholder& background, const Rect& viewportRect, double alpha) {
-        renderBackground(niriWorkspaceBackgroundRect(state, background, viewportRect), alpha);
-        renderCapturedWallpaperLayers(state, background, viewportRect, alpha);
+        if (!foregroundOnly) {
+            renderBackground(niriWorkspaceBackgroundRect(state, background, viewportRect), alpha);
+            renderCapturedWallpaperLayers(state, background, viewportRect, alpha);
+        }
 
         const bool hasWorkspaceSpecificProxy = std::any_of(m_hiddenStripLayerProxies.begin(), m_hiddenStripLayerProxies.end(), [&](const HiddenStripLayerProxy& proxy) {
             return proxy.layer && proxy.monitor == renderMonitor && proxy.niriWallpaperLayoutLayer &&
@@ -8321,7 +8323,10 @@ void OverviewController::renderNiriWorkspaceBackgrounds() const {
             fallbackWorkspaceId = renderMonitor->m_activeWorkspace->m_id;
 
         for (const auto& proxy : m_hiddenStripLayerProxies) {
-            if (!proxy.layer || proxy.monitor != renderMonitor || !proxy.niriWallpaperLayoutLayer)
+            if (!proxy.layer || proxy.monitor != renderMonitor || !proxy.niriWallpaperLayoutLayer ||
+                (proxy.layer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY ||
+                 (proxy.layer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP &&
+                  shouldHideLayerSurfaceNamespace(proxy.layer, niriModeWallpaperZoomLayerNamespaces()))) != foregroundOnly)
                 continue;
             if (proxy.niriWallpaperWorkspaceId != WORKSPACE_INVALID) {
                 if (hasWorkspaceSpecificProxy) {
@@ -8370,8 +8375,10 @@ void OverviewController::renderNiriWorkspaceBackgrounds() const {
         }
     };
     const auto renderCollectedWorkspaces = [&]() {
-        for (const auto& item : renderItems)
-            renderBackgroundShadow(niriWorkspaceBackgroundRect(*item.state, *item.background, item.viewportRect), item.alpha);
+        if (!foregroundOnly) {
+            for (const auto& item : renderItems)
+                renderBackgroundShadow(niriWorkspaceBackgroundRect(*item.state, *item.background, item.viewportRect), item.alpha);
+        }
         for (const auto& item : renderItems)
             renderWorkspace(*item.state, *item.background, item.viewportRect, item.alpha);
     };

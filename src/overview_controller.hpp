@@ -1020,7 +1020,7 @@ class OverviewController {
     [[nodiscard]] Rect niriWorkspaceSurfaceRect(const State& state, const EmptyWorkspacePlaceholder& background, const Rect& viewportRect,
                                                 const Rect& surfaceRect) const;
     [[nodiscard]] Rect niriWorkspaceBackgroundRect(const State& state, const EmptyWorkspacePlaceholder& background, const Rect& viewportRect) const;
-    void renderNiriWorkspaceBackgrounds() const;
+    void renderNiriWorkspaceBackgrounds(bool foregroundOnly = false) const;
     void renderEmptyOverviewPlaceholder(bool backingOnlyPass = false) const;
     void renderSelectionChrome() const;
     void renderNiriDragHint() const;
