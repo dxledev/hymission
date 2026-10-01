@@ -555,6 +555,7 @@ class OverviewController {
         PHLMONITOR monitor;
         Rect       capturedRectGlobal;
         Rect       proxyRectGlobal;
+        Rect       contentRectFramebuffer;
         Vector2D   snapshotSize;
         SP<Render::IFramebuffer> framebuffer;
         std::array<SP<Render::IFramebuffer>, 4> blurredFramebuffers;

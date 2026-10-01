@@ -7,6 +7,7 @@
 
 #include "overview_controller.hpp"
 #include "overview_controller_niri_scrolling.hpp"
+#include "snapshot_geometry.hpp"
 
 #include <algorithm>
 #include <any>
@@ -1224,28 +1225,6 @@ bool blitFramebufferRegion(Render::IFramebuffer& sourceFramebuffer, Render::IFra
         glDisable(GL_SCISSOR_TEST);
 
     return glGetError() == GL_NO_ERROR;
-}
-
-bool renderTextureIntoFramebuffer(const PHLMONITOR& monitor, const SP<Render::IFramebuffer>& targetFramebuffer, const SP<Render::ITexture>& texture, const CBox& destinationBox) {
-    if (!monitor || !g_pHyprRenderer || !g_pHyprOpenGL || !texture || !targetFramebuffer || !targetFramebuffer->isAllocated())
-        return false;
-
-    setTextureLinearFiltering(texture);
-    setFramebufferLinearFiltering(*targetFramebuffer);
-
-    const bool previousBlockScreenShader = g_pHyprRenderer->m_renderData.blockScreenShader;
-    CRegion     fakeDamage{0, 0, targetFramebuffer->m_size.x, targetFramebuffer->m_size.y};
-    if (!g_pHyprRenderer->beginFullFakeRender(monitor, fakeDamage, targetFramebuffer)) {
-        g_pHyprRenderer->m_renderData.blockScreenShader = previousBlockScreenShader;
-        return false;
-    }
-
-    g_pHyprRenderer->m_renderData.blockScreenShader = true;
-    g_pHyprRenderer->draw(CClearPassElement::SClearData{.color = CHyprColor{0.0, 0.0, 0.0, 0.0}}, fakeDamage);
-    g_pHyprOpenGL->renderTexture(texture, destinationBox, {.a = 1.0F});
-    g_pHyprRenderer->endRender();
-    g_pHyprRenderer->m_renderData.blockScreenShader = previousBlockScreenShader;
-    return true;
 }
 
 struct GaussianBlurPipeline {
@@ -11213,48 +11192,24 @@ bool OverviewController::captureHiddenStripLayerProxy(const PHLLS& layer, const 
         std::abs(sourceFramebuffer->m_size.x - monitorRenderWidth) <= kSnapshotSizeTolerance &&
         std::abs(sourceFramebuffer->m_size.y - monitorRenderHeight) <= kSnapshotSizeTolerance;
 
-    Rect         sourceRect = makeRect(0.0, 0.0, sourceFramebuffer->m_size.x, sourceFramebuffer->m_size.y);
-    Rect         targetRect = makeRect(targetOffsetX, targetOffsetY, sourceFramebuffer->m_size.x, sourceFramebuffer->m_size.y);
-    SP<Render::IFramebuffer> croppedFramebuffer;
-    bool                     useCroppedFramebuffer = false;
+    Rect   sourceRect = makeRect(0.0, 0.0, sourceFramebuffer->m_size.x, sourceFramebuffer->m_size.y);
+    double destinationX = targetOffsetX;
+    double destinationY = targetOffsetY;
     if (sourceMatchesProxy) {
-        targetRect = makeRect(0.0, 0.0, sourceFramebuffer->m_size.x, sourceFramebuffer->m_size.y);
-    } else if (sourceMatchesCaptured) {
-        targetRect = makeRect(targetOffsetX, targetOffsetY, sourceFramebuffer->m_size.x, sourceFramebuffer->m_size.y);
-    } else if (sourceMatchesMonitor) {
-        const double sourceX = std::clamp(capturedRectRenderLocal.x * sourceFramebuffer->m_size.x / monitorRenderWidth, 0.0,
-                                          std::max(0.0, sourceFramebuffer->m_size.x - capturedRectRenderLocal.width));
-        const double sourceY = std::clamp(capturedRectRenderLocal.y * sourceFramebuffer->m_size.y / monitorRenderHeight, 0.0,
-                                          std::max(0.0, sourceFramebuffer->m_size.y - capturedRectRenderLocal.height));
-        const int croppedWidth = std::max(1, static_cast<int>(std::lround(capturedRectRenderLocal.width)));
-        const int croppedHeight = std::max(1, static_cast<int>(std::lround(capturedRectRenderLocal.height)));
-        croppedFramebuffer = createFramebuffer("hymission hidden strip layer crop");
-        if (!croppedFramebuffer || !croppedFramebuffer->alloc(croppedWidth, croppedHeight)) {
-            if (debugLogsEnabled()) {
-                std::ostringstream out;
-                out << "[hymission] strip-bar capture cropped framebuffer alloc failed namespace=" << layer->m_namespace << " monitor=" << monitor->m_name
-                    << " fb=(" << croppedWidth << "x" << croppedHeight << ")";
-                debugLog(out.str());
-            }
-            return false;
-        }
-        setFramebufferLinearFiltering(*croppedFramebuffer);
-
-        if (!renderTextureIntoFramebuffer(monitor, croppedFramebuffer, sourceFramebuffer->getTexture(),
-                                          CBox(-sourceX, -sourceY, sourceFramebuffer->m_size.x, sourceFramebuffer->m_size.y))) {
-            if (debugLogsEnabled()) {
-                std::ostringstream out;
-                out << "[hymission] strip-bar capture cropped blit failed namespace=" << layer->m_namespace << " monitor=" << monitor->m_name
-                    << " sourceOffset=(" << sourceX << "," << sourceY << ")";
-                debugLog(out.str());
-            }
-            return false;
-        }
-
-        sourceRect = makeRect(0.0, 0.0, croppedFramebuffer->m_size.x, croppedFramebuffer->m_size.y);
-        targetRect = makeRect(targetOffsetX, targetOffsetY, capturedRectRenderLocal.width, capturedRectRenderLocal.height);
-        useCroppedFramebuffer = true;
+        destinationX = 0.0;
+        destinationY = 0.0;
+    } else if (!sourceMatchesCaptured && sourceMatchesMonitor) {
+        // Match surface endpoint rounding and copy texels without resampling the crop.
+        sourceRect = capturedRectRenderLocal;
     }
+
+    const auto copy = snapshot_geometry::clippedPixelCopy(sourceRect, destinationX, destinationY,
+                                                         sourceFramebuffer->m_size.x, sourceFramebuffer->m_size.y,
+                                                         existing->framebuffer->m_size.x, existing->framebuffer->m_size.y);
+    if (!copy)
+        return false;
+    sourceRect = copy->source;
+    const Rect targetRect = copy->destination;
 
     if (debugLogsEnabled()) {
         std::ostringstream out;
@@ -11273,8 +11228,7 @@ bool OverviewController::captureHiddenStripLayerProxy(const PHLLS& layer, const 
         debugLog(out.str());
     }
 
-    auto& blitSourceFramebuffer = useCroppedFramebuffer ? *croppedFramebuffer : *sourceFramebuffer;
-    if (!blitFramebufferRegion(blitSourceFramebuffer, *existing->framebuffer, sourceRect, targetRect)) {
+    if (!blitFramebufferRegion(*sourceFramebuffer, *existing->framebuffer, sourceRect, targetRect)) {
         if (debugLogsEnabled()) {
             std::ostringstream out;
             out << "[hymission] strip-bar capture blit failed namespace=" << layer->m_namespace << " monitor=" << monitor->m_name
@@ -11283,6 +11237,10 @@ bool OverviewController::captureHiddenStripLayerProxy(const PHLLS& layer, const 
         }
         return false;
     }
+
+    existing->contentRectFramebuffer = sourceMatchesProxy ?
+        snapshot_geometry::intersectRects(snapshot_geometry::roundSurfaceRect(
+            makeRect(targetOffsetX, targetOffsetY, capturedRectRenderLocal.width, capturedRectRenderLocal.height)), targetRect) : targetRect;
 
     if (!niriLayoutLayer && !buildBlurredProxyFramebuffers(existing->framebuffer, existing->blurredFramebuffers)) {
         if (debugLogsEnabled()) {

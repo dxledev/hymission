@@ -6,6 +6,7 @@
 // Hyprland remains authoritative for actual columns, tiles, and window geometry.
 
 #include "overview_controller_niri_scrolling.hpp"
+#include "snapshot_geometry.hpp"
 
 #include <algorithm>
 #include <array>
@@ -8355,16 +8356,11 @@ void OverviewController::renderNiriWorkspaceBackgrounds(bool foregroundOnly) con
             if (layerRender.width <= 0.0 || layerRender.height <= 0.0 || layerAlpha <= 0.001F)
                 continue;
 
-            const double proxyWidth = std::max(1.0, proxy.proxyRectGlobal.width);
-            const double proxyHeight = std::max(1.0, proxy.proxyRectGlobal.height);
-            const Vector2D uvTopLeft{
-                std::clamp((proxy.capturedRectGlobal.x - proxy.proxyRectGlobal.x) / proxyWidth, 0.0, 1.0),
-                std::clamp((proxy.capturedRectGlobal.y - proxy.proxyRectGlobal.y) / proxyHeight, 0.0, 1.0),
-            };
-            const Vector2D uvBottomRight{
-                std::clamp((proxy.capturedRectGlobal.x + proxy.capturedRectGlobal.width - proxy.proxyRectGlobal.x) / proxyWidth, 0.0, 1.0),
-                std::clamp((proxy.capturedRectGlobal.y + proxy.capturedRectGlobal.height - proxy.proxyRectGlobal.y) / proxyHeight, 0.0, 1.0),
-            };
+            const auto uvRect = snapshot_geometry::contentTexelUVRect(proxy.contentRectFramebuffer, framebuffer->m_size.x, framebuffer->m_size.y);
+            if (!uvRect)
+                continue;
+            const Vector2D uvTopLeft{uvRect->x, uvRect->y};
+            const Vector2D uvBottomRight{uvRect->x + uvRect->width, uvRect->y + uvRect->height};
             g_pHyprOpenGL->renderTexture(framebuffer->getTexture(), toBox(layerRender),
                                          {
                                              .a = layerAlpha,

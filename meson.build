@@ -79,3 +79,11 @@ overview_drag_logic_test = executable('hymission-overview-drag-logic-test',
 )
 
 test('hymission-overview-drag-logic-test', overview_drag_logic_test)
+
+snapshot_geometry_test = executable('hymission-snapshot-geometry-test',
+  'tools/snapshot_geometry_test.cpp',
+  include_directories: include_directories('src'),
+  install: false,
+)
+
+test('hymission-snapshot-geometry-test', snapshot_geometry_test)

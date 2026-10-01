@@ -62,6 +62,10 @@ add_executable(hymission-layout-demo
 target_include_directories(hymission-layout-demo PRIVATE src)
 
 if(BUILD_TESTING)
+  add_executable(hymission-snapshot-geometry-test tools/snapshot_geometry_test.cpp)
+  target_include_directories(hymission-snapshot-geometry-test PRIVATE src)
+  add_test(NAME hymission-snapshot-geometry-test COMMAND hymission-snapshot-geometry-test)
+
   add_executable(hymission-mission-layout-test
     tools/mission_layout_test.cpp
     src/mission_layout.cpp
