@@ -8,6 +8,33 @@
 
 namespace hymission::snapshot_geometry {
 
+enum class FramebufferYConvention {
+    Flipped,
+    Direct,
+};
+
+struct FramebufferBlitRect {
+    int left = 0;
+    int bottom = 0;
+    int right = 0;
+    int top = 0;
+};
+
+inline std::optional<FramebufferBlitRect> rectToFramebufferBlitRect(const Rect& rect, double framebufferWidth, double framebufferHeight,
+                                                                  FramebufferYConvention yConvention = FramebufferYConvention::Flipped) {
+    const int width = std::max(1, static_cast<int>(std::lround(framebufferWidth)));
+    const int height = std::max(1, static_cast<int>(std::lround(framebufferHeight)));
+    const int left = std::clamp(static_cast<int>(std::floor(rect.x)), 0, width);
+    const int right = std::clamp(static_cast<int>(std::ceil(rect.x + rect.width)), 0, width);
+    const int startY = std::clamp(static_cast<int>(std::floor(rect.y)), 0, height);
+    const int endY = std::clamp(static_cast<int>(std::ceil(rect.y + rect.height)), 0, height);
+    const int bottom = yConvention == FramebufferYConvention::Direct ? startY : height - endY;
+    const int top = yConvention == FramebufferYConvention::Direct ? endY : height - startY;
+    if (left >= right || bottom >= top)
+        return std::nullopt;
+    return FramebufferBlitRect{left, bottom, right, top};
+}
+
 struct PixelCopy {
     Rect source;
     Rect destination;

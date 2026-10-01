@@ -1155,41 +1155,13 @@ std::optional<GLuint> framebufferId(Render::IFramebuffer& framebuffer) {
     return glFramebuffer->getFBID();
 }
 
-struct FramebufferBlitRect {
-    GLint left = 0;
-    GLint bottom = 0;
-    GLint right = 0;
-    GLint top = 0;
-};
-
-std::optional<FramebufferBlitRect> rectToFramebufferBlitRect(const Rect& rect, const Vector2D& framebufferSize) {
-    const GLint framebufferWidth = std::max(1, static_cast<int>(std::lround(framebufferSize.x)));
-    const GLint framebufferHeight = std::max(1, static_cast<int>(std::lround(framebufferSize.y)));
-
-    const GLint left = std::clamp(static_cast<GLint>(std::floor(rect.x)), 0, framebufferWidth);
-    const GLint right = std::clamp(static_cast<GLint>(std::ceil(rect.x + rect.width)), 0, framebufferWidth);
-    const GLint topFromTop = std::clamp(static_cast<GLint>(std::floor(rect.y)), 0, framebufferHeight);
-    const GLint bottomFromTop = std::clamp(static_cast<GLint>(std::ceil(rect.y + rect.height)), 0, framebufferHeight);
-    const GLint bottom = framebufferHeight - bottomFromTop;
-    const GLint top = framebufferHeight - topFromTop;
-
-    if (left >= right || bottom >= top)
-        return std::nullopt;
-
-    return FramebufferBlitRect{
-        .left = left,
-        .bottom = bottom,
-        .right = right,
-        .top = top,
-    };
-}
-
-bool blitFramebufferRegion(Render::IFramebuffer& sourceFramebuffer, Render::IFramebuffer& targetFramebuffer, const Rect& sourceRect, const Rect& targetRect) {
+bool blitFramebufferRegion(Render::IFramebuffer& sourceFramebuffer, Render::IFramebuffer& targetFramebuffer, const Rect& sourceRect, const Rect& targetRect,
+                           snapshot_geometry::FramebufferYConvention yConvention = snapshot_geometry::FramebufferYConvention::Flipped) {
     if (!sourceFramebuffer.isAllocated() || !targetFramebuffer.isAllocated())
         return false;
 
-    const auto sourceBlitRect = rectToFramebufferBlitRect(sourceRect, sourceFramebuffer.m_size);
-    const auto targetBlitRect = rectToFramebufferBlitRect(targetRect, targetFramebuffer.m_size);
+    const auto sourceBlitRect = snapshot_geometry::rectToFramebufferBlitRect(sourceRect, sourceFramebuffer.m_size.x, sourceFramebuffer.m_size.y, yConvention);
+    const auto targetBlitRect = snapshot_geometry::rectToFramebufferBlitRect(targetRect, targetFramebuffer.m_size.x, targetFramebuffer.m_size.y, yConvention);
     if (!sourceBlitRect || !targetBlitRect)
         return false;
     const auto sourceFramebufferId = framebufferId(sourceFramebuffer);
@@ -11228,7 +11200,8 @@ bool OverviewController::captureHiddenStripLayerProxy(const PHLLS& layer, const 
         debugLog(out.str());
     }
 
-    if (!blitFramebufferRegion(*sourceFramebuffer, *existing->framebuffer, sourceRect, targetRect)) {
+    // Hyprland's snapshot projection maps surface Y directly to framebuffer Y.
+    if (!blitFramebufferRegion(*sourceFramebuffer, *existing->framebuffer, sourceRect, targetRect, snapshot_geometry::FramebufferYConvention::Direct)) {
         if (debugLogsEnabled()) {
             std::ostringstream out;
             out << "[hymission] strip-bar capture blit failed namespace=" << layer->m_namespace << " monitor=" << monitor->m_name
