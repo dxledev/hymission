@@ -101,8 +101,10 @@ PHLWINDOW fit1EdgeReturnLeafFocus(const PHLWORKSPACE& workspace);
 
 class OverviewOverlayPassElement final : public IPassElement {
   public:
-    OverviewOverlayPassElement(OverviewController* controller, const PHLMONITOR& monitor, bool chromeOnly = false)
-        : m_controller(controller), m_monitor(monitor), m_chromeOnly(chromeOnly) {
+    enum class Mode { Full, ChromeOnly, ForegroundOnly };
+
+    OverviewOverlayPassElement(OverviewController* controller, const PHLMONITOR& monitor, Mode mode = Mode::Full)
+        : m_controller(controller), m_monitor(monitor), m_mode(mode) {
     }
 
     std::vector<UP<IPassElement>> draw() override {
@@ -114,12 +116,15 @@ class OverviewOverlayPassElement final : public IPassElement {
         if (!expectedMonitor || renderMonitor != expectedMonitor)
             return {};
 
-        if (m_chromeOnly) {
+        if (m_mode == Mode::ChromeOnly) {
             m_controller->renderSelectionChrome();
             return {};
         }
 
         m_controller->renderNiriWorkspaceBackgrounds(true);
+        if (m_mode == Mode::ForegroundOnly)
+            return {};
+
         m_controller->renderHiddenStripLayerProxies();
         m_controller->renderEmptyOverviewPlaceholder();
         m_controller->renderSelectionChrome();
@@ -163,7 +168,7 @@ class OverviewOverlayPassElement final : public IPassElement {
   private:
     OverviewController* m_controller = nullptr;
     PHLMONITORREF       m_monitor;
-    bool                m_chromeOnly = false;
+    Mode                m_mode = Mode::Full;
 };
 
 class OverviewWallpaperPassElement final : public IPassElement {
@@ -4634,12 +4639,16 @@ void OverviewController::renderStage(eRenderStage stage) {
         }
     } else if (stage == RENDER_POST_WINDOWS) {
         const bool directNiriHandoff = usesDirectNiriScrollingOverview(m_state) || niriModeAppliesToState(m_state);
+        if (directNiriHandoff && m_deactivatePending && niriWallpaperZoomAppliesToMonitor(m_state, monitor)) {
+            // Keep foreground snapshots visible while their native layers remain hidden until deactivate().
+            g_pHyprRenderer->m_renderPass.add(makeUnique<OverviewOverlayPassElement>(this, monitor, OverviewOverlayPassElement::Mode::ForegroundOnly));
+        }
         if (directNiriHandoff && directNiriNativeHandoffActive()) {
             // Match the clean entry handoff: native windows/wallpaper can own the
             // desktop sample, but the overview still owns selection chrome until
             // deactivation. This prevents a one-frame native active-border blink
             // or border dropout at the end of the close animation.
-            g_pHyprRenderer->m_renderPass.add(makeUnique<OverviewOverlayPassElement>(this, monitor, true));
+            g_pHyprRenderer->m_renderPass.add(makeUnique<OverviewOverlayPassElement>(this, monitor, OverviewOverlayPassElement::Mode::ChromeOnly));
             if (m_deactivatePending) {
                 if (debugLogsEnabled())
                     debugLog("[hymission] post-windows queue deferred deactivate");
