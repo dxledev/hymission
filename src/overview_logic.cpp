@@ -183,6 +183,15 @@ std::optional<std::size_t> chooseCyclicIndex(std::size_t count, std::size_t curr
     return static_cast<std::size_t>((static_cast<long long>(currentIndex) + normalized) % countSigned);
 }
 
+std::optional<std::size_t> chooseOverviewSelectionIndex(std::size_t count, std::optional<std::size_t> selected,
+                                                       std::optional<std::size_t> focused) {
+    if (selected && *selected < count)
+        return selected;
+    if (focused && *focused < count)
+        return focused;
+    return std::nullopt;
+}
+
 Rect lerpRect(const Rect& from, const Rect& to, double t) {
     const double clamped = clampUnit(t);
     return {

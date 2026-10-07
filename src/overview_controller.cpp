@@ -3314,6 +3314,7 @@ OverviewController::~OverviewController() {
     clearThemeWorkspaceActivationRefresh();
     clearWorkspaceStripSnapshotRefreshTimer();
     clearNiriWallpaperLayoutLayerRefresh();
+    clearLayerSnapshotRefresh();
     clearDirectNiriDndTimer();
     clearRegisteredTrackpadGestures();
     clearPostCloseForcedFocus();
@@ -10874,7 +10875,7 @@ void OverviewController::clearNiriWallpaperSnapshots() {
 }
 
 SP<Render::IFramebuffer> OverviewController::captureLayerFramebuffer(const PHLLS& layer) {
-    if (!layer || !g_pHyprRenderer)
+    if (!layer || !g_pHyprRenderer || layerSnapshotRenderContextActive())
         return nullptr;
 
     m_layerSnapshotCaptureLayer = layer;
@@ -10889,6 +10890,68 @@ SP<Render::IFramebuffer> OverviewController::captureLayerFramebuffer(const PHLLS
 #else
     return layer->m_snapshotFB;
 #endif
+}
+
+bool OverviewController::layerSnapshotRenderContextActive() const {
+    return m_stripSnapshotRenderDepth > 0 || m_layerSnapshotCaptureLayer || (g_pHyprRenderer && g_pHyprRenderer->m_renderData.pMonitor);
+}
+
+bool OverviewController::deferLayerSnapshotRefresh(LayerSnapshotKind kind) {
+    if (!layerSnapshotRenderContextActive())
+        return false;
+
+    // Hyprland snapshots end their render context instead of restoring the caller's.
+    m_layerSnapshotRefresh.request(kind);
+    if (!g_pEventLoopManager)
+        return true;
+
+    if (!m_layerSnapshotRefreshTimer) {
+        m_layerSnapshotRefreshTimer = makeShared<CEventLoopTimer>(
+            THEME_SURFACE_FEEDBACK_INTERVAL,
+            [this](SP<CEventLoopTimer> self, void*) {
+                self->updateTimeout(std::nullopt);
+                if (g_controller == this)
+                    refreshDeferredLayerSnapshots();
+            },
+            nullptr);
+        g_pEventLoopManager->addTimer(m_layerSnapshotRefreshTimer);
+    } else if (!m_layerSnapshotRefreshTimer->armed()) {
+        m_layerSnapshotRefreshTimer->updateTimeout(THEME_SURFACE_FEEDBACK_INTERVAL);
+    }
+    return true;
+}
+
+void OverviewController::refreshDeferredLayerSnapshots() {
+    if (!isVisible() || m_deactivatePending) {
+        m_layerSnapshotRefresh.clear();
+        return;
+    }
+
+    const auto requests = m_layerSnapshotRefresh.take(layerSnapshotRenderContextActive());
+    if (m_layerSnapshotRefresh.pending()) {
+        m_layerSnapshotRefreshTimer->updateTimeout(THEME_SURFACE_FEEDBACK_INTERVAL);
+        return;
+    }
+
+    if (requests.test(static_cast<std::size_t>(LayerSnapshotKind::Wallpaper)))
+        syncNiriWallpaperSnapshots();
+    if (requests.test(static_cast<std::size_t>(LayerSnapshotKind::HiddenStrip)))
+        syncHiddenStripLayerProxies();
+    if (requests.test(static_cast<std::size_t>(LayerSnapshotKind::WallpaperLayout)))
+        syncNiriWallpaperLayoutLayerProxies();
+    if (requests.any())
+        damageOwnedMonitors();
+}
+
+void OverviewController::clearLayerSnapshotRefresh() {
+    m_layerSnapshotRefresh.clear();
+    if (!m_layerSnapshotRefreshTimer)
+        return;
+
+    m_layerSnapshotRefreshTimer->cancel();
+    if (g_pEventLoopManager)
+        g_pEventLoopManager->removeTimer(m_layerSnapshotRefreshTimer);
+    m_layerSnapshotRefreshTimer.reset();
 }
 
 bool OverviewController::isNiriWallpaperLayer(const PHLLS& layer, const PHLMONITOR& monitor) const {
@@ -10946,6 +11009,9 @@ WORKSPACEID OverviewController::niriWallpaperWorkspaceIdForMonitor(const PHLMONI
 }
 
 void OverviewController::syncNiriWallpaperSnapshots() {
+    if (deferLayerSnapshotRefresh(LayerSnapshotKind::Wallpaper))
+        return;
+
     clearNiriWallpaperSnapshots();
     if (!isVisible() || !niriWallpaperZoomAppliesToState(m_state) || !g_pHyprRenderer || !g_pHyprOpenGL)
         return;
@@ -11237,6 +11303,9 @@ bool OverviewController::captureHiddenStripLayerProxy(const PHLLS& layer, const 
 }
 
 void OverviewController::syncHiddenStripLayerProxies() {
+    if (deferLayerSnapshotRefresh(LayerSnapshotKind::HiddenStrip))
+        return;
+
     if (!isVisible() || (!hideBarAnimationEffectsEnabled() && !niriWallpaperZoomAppliesToState(m_state))) {
         clearHiddenStripLayerProxies();
         return;
@@ -11282,6 +11351,9 @@ void OverviewController::syncHiddenStripLayerProxies() {
 }
 
 void OverviewController::syncNiriWallpaperLayoutLayerProxies() {
+    if (deferLayerSnapshotRefresh(LayerSnapshotKind::WallpaperLayout))
+        return;
+
     if (!isVisible() || !niriWallpaperZoomAppliesToState(m_state))
         return;
 
@@ -12318,8 +12390,18 @@ void OverviewController::updateSelectedWindowLayout(const PHLWINDOW& previousSel
     if (multiWorkspaceOverview && !multiWorkspaceExpandSelectedWindowEnabled())
         return;
 
-    const auto currentSelection = selectedWindow();
-    const auto currentSelectedWindow = currentSelection ? currentSelection : Desktop::focusState()->window();
+    const auto focusedWindow = Desktop::focusState()->window();
+    const auto focusedIt = std::find_if(m_state.windows.begin(), m_state.windows.end(),
+                                        [&](const ManagedWindow& managed) { return managed.window == focusedWindow; });
+    const auto focusedIndex = focusedIt == m_state.windows.end() ? std::nullopt :
+        std::optional<std::size_t>{static_cast<std::size_t>(std::distance(m_state.windows.begin(), focusedIt))};
+    const auto selectionIndex = chooseOverviewSelectionIndex(m_state.windows.size(), m_state.selectedIndex, focusedIndex);
+    if (!selectionIndex)
+        return;
+
+    const auto currentSelectedWindow = m_state.windows[*selectionIndex].window;
+    if (!currentSelectedWindow || !windowMatchesOverviewScope(currentSelectedWindow, m_state, false))
+        return;
     if (currentSelectedWindow == previousSelectedWindow)
         return;
     m_lastLayoutSelectedWindow = currentSelectedWindow;
@@ -13619,6 +13701,7 @@ void OverviewController::deactivate() {
     clearPendingStripWorkspaceChange();
     clearStripWindowDragState();
     clearDirectNiriDndState();
+    clearLayerSnapshotRefresh();
     clearHiddenStripLayerProxies();
     clearNiriWallpaperSnapshots();
     clearNiriOverviewViewports();

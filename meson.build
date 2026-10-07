@@ -87,3 +87,11 @@ snapshot_geometry_test = executable('hymission-snapshot-geometry-test',
 )
 
 test('hymission-snapshot-geometry-test', snapshot_geometry_test)
+
+render_safety_test = executable('hymission-render-safety-test',
+  ['tools/render_safety_test.cpp', 'src/overview_logic.cpp'],
+  include_directories: include_directories('src'),
+  install: false,
+)
+
+test('hymission-render-safety-test', render_safety_test)

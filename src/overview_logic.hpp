@@ -81,6 +81,8 @@ struct WorkspaceStripReservation {
 [[nodiscard]] std::optional<std::size_t> hitTest(const std::vector<Rect>& rects, double x, double y);
 [[nodiscard]] std::optional<std::size_t> chooseDirectionalNeighbor(const std::vector<Rect>& rects, std::size_t currentIndex, Direction direction);
 [[nodiscard]] std::optional<std::size_t> chooseCyclicIndex(std::size_t count, std::size_t currentIndex, int step = 1);
+[[nodiscard]] std::optional<std::size_t> chooseOverviewSelectionIndex(std::size_t count, std::optional<std::size_t> selected,
+                                                                     std::optional<std::size_t> focused);
 [[nodiscard]] Rect                       lerpRect(const Rect& from, const Rect& to, double t);
 [[nodiscard]] Rect                       transformLiveOverviewRect(const Rect& liveRect, const Rect& desktopViewport, const Rect& overviewViewport);
 [[nodiscard]] int                        scaledOverviewRounding(double logicalRounding, double monitorScale, double previewScale);

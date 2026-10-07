@@ -49,6 +49,7 @@
 #include "mission_layout.hpp"
 #include "overview_drag_logic.hpp"
 #include "overview_logic.hpp"
+#include "snapshot_refresh.hpp"
 
 class CEventLoopTimer;
 namespace Config {
@@ -830,6 +831,10 @@ class OverviewController {
     [[nodiscard]] Rect                          niriOverviewViewportForWorkspace(const PHLWORKSPACE& workspace) const;
     void                                        resetDirectNiriWorkspaceLanes();
     void                                        syncNiriWallpaperSnapshots();
+    [[nodiscard]] bool                          layerSnapshotRenderContextActive() const;
+    bool                                        deferLayerSnapshotRefresh(LayerSnapshotKind kind);
+    void                                        refreshDeferredLayerSnapshots();
+    void                                        clearLayerSnapshotRefresh();
     [[nodiscard]] SP<Render::IFramebuffer>       captureLayerFramebuffer(const PHLLS& layer);
     [[nodiscard]] bool                          isNiriWallpaperLayer(const PHLLS& layer, const PHLMONITOR& monitor) const;
     [[nodiscard]] bool                          isNiriWallpaperLayoutLayer(const PHLLS& layer, const PHLMONITOR& monitor) const;
@@ -1265,6 +1270,8 @@ class OverviewController {
     bool                     m_stripSnapshotRefreshScheduled = false;
     SP<CEventLoopTimer>      m_stripSnapshotRefreshTimer;
     SP<CEventLoopTimer>      m_niriWallpaperLayoutLayerRefreshTimer;
+    SP<CEventLoopTimer>      m_layerSnapshotRefreshTimer;
+    LayerSnapshotRefresh    m_layerSnapshotRefresh;
     std::size_t              m_stripSnapshotSurfaceFeedbackFrames = 0;
     std::size_t              m_overviewSurfaceFeedbackFrames = 0;
     std::size_t              m_pendingOverviewSurfaceFeedbackFrames = 0;
