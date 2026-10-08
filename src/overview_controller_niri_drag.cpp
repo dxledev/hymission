@@ -1,8 +1,7 @@
 // Direct-niri window dragging and overview editing integration.
 //
-// The drag session temporarily detaches a real Hyprland window, projects pointer
-// movement into an insertion target, applies the drop through the scrolling
-// layout, and rebuilds from the resulting compositor state.
+// The drag session projects pointer movement into a scrolling insertion or native
+// layout target, then rebuilds from the resulting compositor state.
 
 #include "overview_controller.hpp"
 #include "overview_controller_niri_scrolling.hpp"
@@ -84,7 +83,12 @@ double rectIntersectionArea(const Rect &lhs, const Rect &rhs) {
 }
 
 template <typename SessionLike, typename TargetLike>
-bool directNiriDropReturnsToSourceSlot(const SessionLike &, const std::optional<TargetLike> &, const Vector2D &) {
+bool directNiriDropReturnsToSourceSlot(const SessionLike &session, const std::optional<TargetLike> &target, const Vector2D &releasePoint) {
+    if constexpr (requires { target->nativeLayout; target->workspace; session.sourceWorkspace.lock(); session.previewRect; }) {
+        if (target && target->nativeLayout && target->workspace == session.sourceWorkspace.lock() && contains(session.previewRect, releasePoint))
+            return true;
+    }
+
     // Do not short-circuit same-workspace drops here.  The target resolver omits
     // the dragged window while computing insert gaps, so a broad “source slot”
     // check can mistake real same-workspace moves for cancel/no-op.  Let the
@@ -643,7 +647,7 @@ void restoreDetachedDragSource(const PHLWINDOW &window, const PHLWORKSPACE &work
 
 bool OverviewController::canDragWindowInDirectNiriOverview(const PHLWINDOW &window) const {
     return window && window->m_isMapped && !hyprland_compat::windowIsFadingOut(window) && !window->m_pinned && !window->onSpecialWorkspace() && m_state.phase == Phase::Active &&
-           m_state.collectionPolicy.onlyActiveWorkspace && usesDirectNiriScrollingOverview(m_state) && !m_workspaceTransition.active;
+           m_state.collectionPolicy.onlyActiveWorkspace && activeDirectNiriSingleWorkspaceOverview() && !m_workspaceTransition.active;
 }
 
 double OverviewController::nativeWindowDragThreshold() const { return std::max(0L, configInt("binds:drag_threshold", 0)); }
@@ -736,10 +740,143 @@ float OverviewController::directNiriDraggedPreviewAlpha(const PHLWINDOW &window,
     return static_cast<float>(std::clamp(configFloat("plugin:hymission:niri_drag_preview_alpha", 0.75), 0.05, 1.0));
 }
 
+Rect OverviewController::nativeOverviewDragViewport(const PHLWORKSPACE& workspace, const PHLMONITOR& monitor, const Rect& fallback) const {
+    const auto placeholder = std::ranges::find_if(m_state.emptyWorkspacePlaceholders, [&](const EmptyWorkspacePlaceholder& candidate) {
+        return candidate.workspace == workspace && candidate.monitor == monitor && usableRect(currentEmptyWorkspacePlaceholderRect(candidate));
+    });
+    if (placeholder != m_state.emptyWorkspacePlaceholders.end())
+        return currentEmptyWorkspacePlaceholderRect(*placeholder);
+    if (usableRect(fallback))
+        return fallback;
+    if (!monitor)
+        return {};
+
+    const Rect content = overviewContentRectForMonitor(monitor, m_state);
+    return {monitor->m_position.x + content.x, monitor->m_position.y + content.y, content.width, content.height};
+}
+
+std::optional<OverviewController::NiriDragTarget> OverviewController::nativeOverviewDragTarget(
+    const PHLWORKSPACE& workspace, const PHLMONITOR& monitor, WORKSPACEID workspaceId, const Rect& viewport, const Vector2D& pointer,
+    const PHLWINDOW& draggedWindow) const {
+    if (workspaceId == WORKSPACE_INVALID || (workspace && workspace->m_isSpecialWorkspace) || !monitor ||
+        (workspace && scrollingForWorkspace(workspace)) || !usableRect(viewport))
+        return std::nullopt;
+
+    PHLWINDOW nativeTarget;
+    double bestDistance = std::numeric_limits<double>::infinity();
+    if (workspace) {
+        for (const auto& managed : m_state.windows) {
+            const auto candidate = managed.window;
+            if (!candidate || candidate == draggedWindow || !candidate->m_isMapped || hyprland_compat::windowIsFadingOut(candidate) || candidate->m_pinned ||
+                candidate->onSpecialWorkspace() || candidate->m_workspace != workspace)
+                continue;
+
+            const auto layoutTarget = candidate->layoutTarget();
+            if (!layoutTarget || layoutTarget->floating())
+                continue;
+
+            const Rect preview = currentPreviewRect(managed);
+            if (!usableRect(preview))
+                continue;
+
+            const double nearestX = std::clamp(pointer.x, preview.x, preview.x + preview.width);
+            const double nearestY = std::clamp(pointer.y, preview.y, preview.y + preview.height);
+            const double deltaX = pointer.x - nearestX;
+            const double deltaY = pointer.y - nearestY;
+            const double distance = deltaX * deltaX + deltaY * deltaY;
+            if (!nativeTarget || distance < bestDistance) {
+                nativeTarget = candidate;
+                bestDistance = distance;
+            }
+        }
+    }
+
+    return NiriDragTarget{
+        .workspace = workspace,
+        .monitor = monitor,
+        .workspaceId = workspaceId,
+        .viewportGlobal = viewport,
+        .floating = m_niriDragSession.sourceFloating,
+        .nativeLayout = true,
+        .nativeTarget = nativeTarget,
+    };
+}
+
+std::optional<OverviewController::NiriDragTarget> OverviewController::nativeOverviewDragTargetAt(const Vector2D& pointer,
+                                                                                                  const PHLWINDOW& draggedWindow) const {
+    if (!draggedWindow)
+        return std::nullopt;
+
+    if (const auto hoveredIndex = hitTestTarget(pointer.x, pointer.y); hoveredIndex && *hoveredIndex < m_state.windows.size()) {
+        const auto& managed = m_state.windows[*hoveredIndex];
+        const auto hovered = managed.window;
+        if (hovered) {
+            const auto workspace = hovered->m_pinned ? m_state.ownerWorkspace : hovered->m_workspace;
+            if (workspace && scrollingForWorkspace(workspace))
+                return std::nullopt;
+
+            if (hovered == draggedWindow)
+                return std::nullopt;
+
+            const auto monitor = managed.targetMonitor ? managed.targetMonitor : (workspace ? workspace->m_monitor.lock() : PHLMONITOR{});
+            if (workspace && !scrollingForWorkspace(workspace)) {
+                const Rect viewport = nativeOverviewDragViewport(workspace, monitor, {});
+                if (auto target = nativeOverviewDragTarget(workspace, monitor, workspace->m_id, viewport, pointer, draggedWindow))
+                    return target;
+            }
+        }
+    }
+
+    const EmptyWorkspacePlaceholder* lane = nullptr;
+    PHLWORKSPACE laneWorkspace;
+    Rect laneRect;
+    double laneArea = std::numeric_limits<double>::infinity();
+    for (const auto& placeholder : m_state.emptyWorkspacePlaceholders) {
+        if (!placeholder.monitor || placeholder.workspaceId == WORKSPACE_INVALID)
+            continue;
+
+        const auto workspace = placeholder.workspace ? placeholder.workspace : hyprland_compat::compositor()->getWorkspaceByID(placeholder.workspaceId);
+        const Rect rect = currentEmptyWorkspacePlaceholderRect(placeholder);
+        if ((workspace && workspace->m_isSpecialWorkspace) || !usableRect(rect) || !contains(rect, pointer))
+            continue;
+
+        const double area = rect.width * rect.height;
+        const bool sameArea = lane && std::abs(area - laneArea) <= 1.0;
+        const bool preferVisibleLane = sameArea && lane->backingOnly && !placeholder.backingOnly;
+        const bool preferScrollingLane = sameArea && lane->backingOnly == placeholder.backingOnly && workspace &&
+            scrollingForWorkspace(workspace) && (!laneWorkspace || !scrollingForWorkspace(laneWorkspace));
+        if (!lane || area < laneArea - 1.0 || preferVisibleLane || preferScrollingLane) {
+            lane = &placeholder;
+            laneWorkspace = workspace;
+            laneRect = rect;
+            laneArea = area;
+        }
+    }
+    if (lane) {
+        if (laneWorkspace && scrollingForWorkspace(laneWorkspace))
+            return std::nullopt;
+        if (auto target = nativeOverviewDragTarget(laneWorkspace, lane->monitor, lane->workspaceId, laneRect, pointer, draggedWindow))
+            return target;
+    }
+
+    const auto ownerWorkspace = m_state.ownerWorkspace ? m_state.ownerWorkspace : activeLayoutWorkspace();
+    const auto ownerMonitor = m_state.ownerMonitor ? m_state.ownerMonitor : (ownerWorkspace ? ownerWorkspace->m_monitor.lock() : PHLMONITOR{});
+    if (ownerWorkspace && ownerMonitor && !scrollingForWorkspace(ownerWorkspace)) {
+        const Rect viewport = nativeOverviewDragViewport(ownerWorkspace, ownerMonitor, {});
+        if (usableRect(viewport) && contains(viewport, pointer))
+            return nativeOverviewDragTarget(ownerWorkspace, ownerMonitor, ownerWorkspace->m_id, viewport, pointer, draggedWindow);
+    }
+
+    return std::nullopt;
+}
+
 std::optional<OverviewController::NiriDragTarget> OverviewController::directNiriDragTargetAt(const Vector2D &pointer) const {
     const auto draggedWindow = m_niriDragSession.window.lock();
     if (!draggedWindow)
         return std::nullopt;
+
+    if (auto nativeTarget = nativeOverviewDragTargetAt(pointer, draggedWindow))
+        return nativeTarget;
 
     const auto direction = scrollingLayoutDirection();
     const bool horizontal = direction == ScrollingLayoutDirection::Right || direction == ScrollingLayoutDirection::Left;
@@ -1253,6 +1390,82 @@ bool OverviewController::applyDirectNiriDragTarget(const PHLWINDOW &window, cons
         return false;
     };
 
+    if (target.nativeLayout && target.workspace && scrollingForWorkspace(workspace))
+        return abortMouseEdit();
+
+    if (target.nativeLayout && !scrollingForWorkspace(workspace)) {
+        if (!workspace->m_space)
+            return abortMouseEdit();
+
+        auto nativeTarget = target.nativeTarget.lock();
+        if (nativeTarget && (!nativeTarget->m_isMapped || hyprland_compat::windowIsFadingOut(nativeTarget) || nativeTarget->m_pinned ||
+                             nativeTarget->onSpecialWorkspace() || nativeTarget->m_workspace != workspace || nativeTarget == window))
+            return abortMouseEdit();
+
+        const auto sourceLayoutTargetBeforeMove = window->layoutTarget();
+        if (!m_niriDragSession.sourceFloating && (!sourceLayoutTargetBeforeMove || sourceLayoutTargetBeforeMove->floating()))
+            return abortMouseEdit();
+
+        if (nativeTarget) {
+            const auto nativeLayoutTarget = nativeTarget->layoutTarget();
+            if (!nativeLayoutTarget || nativeLayoutTarget->floating())
+                return abortMouseEdit();
+        }
+
+        if (sourceWorkspace != workspace) {
+            niri_scrolling_detail::retainDirectNiriWorkspaceLaneForDrag(sourceWorkspace ? sourceWorkspace->m_monitor.lock() : PHLMONITOR{}, sourceWorkspace);
+            niri_scrolling_detail::retainDirectNiriWorkspaceLaneForDrag(target.monitor, workspace);
+
+            const bool previousGuard = m_applyingWorkspaceTransitionCommit;
+            m_applyingWorkspaceTransitionCommit = true;
+            hyprland_compat::compositor()->moveWindowToWorkspaceSafe(window, workspace);
+            m_applyingWorkspaceTransitionCommit = previousGuard;
+            niri_scrolling_detail::armDirectNiriWorkspaceTransferRenderGuard(window);
+            m_rebuildVisibleStateAfterWorkspaceTransitionCommit = false;
+        }
+
+        if (m_niriDragSession.sourceFloating) {
+            const auto layoutTarget = window->layoutTarget();
+            if (layoutTarget && !layoutTarget->floating()) {
+                const bool previousGuard = m_applyingWorkspaceTransitionCommit;
+                m_applyingWorkspaceTransitionCommit = true;
+                workspace->m_space->toggleTargetFloating(layoutTarget);
+                m_applyingWorkspaceTransitionCommit = previousGuard;
+                m_rebuildVisibleStateAfterWorkspaceTransitionCommit = false;
+            }
+
+            if (const auto dropBox = floatingDropBox(window, workspace, target.viewportGlobal, releasePreviewRect, m_niriDragSession.pointerRatio)) {
+                const auto floatingTarget = window->layoutTarget();
+                if (floatingTarget) {
+                    g_layoutManager->setTargetGeom(*dropBox, floatingTarget);
+                    floatingTarget->warpPositionSize();
+                    floatingTarget->damageEntire();
+                }
+            }
+        } else if (nativeTarget) {
+            const auto sourceLayoutTarget = window->layoutTarget();
+            const auto destinationLayoutTarget = nativeTarget->layoutTarget();
+            if (sourceLayoutTarget && !sourceLayoutTarget->floating() && destinationLayoutTarget && !destinationLayoutTarget->floating() &&
+                sourceLayoutTarget->space() == workspace->m_space && destinationLayoutTarget->space() == workspace->m_space) {
+                if (g_layoutManager)
+                    g_layoutManager->switchTargets(sourceLayoutTarget, destinationLayoutTarget, true);
+                else
+                    sourceLayoutTarget->swap(destinationLayoutTarget);
+            }
+        }
+
+        if (sourceWorkspace && sourceWorkspace != workspace)
+            refreshWorkspaceLayoutSnapshot(sourceWorkspace);
+        refreshWorkspaceLayoutSnapshot(workspace);
+
+        armMouseEditSnapshotRefresh();
+        const auto focus = restoreFocusForMouseEdit();
+        rebuildVisibleState(focus, true);
+        armMouseEditSnapshotRefresh();
+        damageOwnedMonitors();
+        return true;
+    }
+
     SP<Layout::Tiled::SColumnData> crossWorkspaceInColumnTargetColumn;
     std::size_t crossWorkspaceInColumnTargetColumnIndex = 0;
     std::size_t crossWorkspaceInColumnTargetTile = 0;
@@ -1709,10 +1922,24 @@ void OverviewController::cancelDirectNiriWindowDrag() {
 }
 
 void OverviewController::renderNiriDragHint() const {
-    if (!m_niriDragSession.active || m_niriDragSession.sourceFloating || !m_niriDragSession.target || m_niriDragSession.target->floating)
+    if (!m_niriDragSession.active || m_niriDragSession.sourceFloating || !m_niriDragSession.target)
         return;
     const auto renderMonitor = g_pHyprRenderer->m_renderData.pMonitor.lock();
     if (!renderMonitor || renderMonitor != m_niriDragSession.target->monitor)
+        return;
+
+    if (m_niriDragSession.target->nativeLayout) {
+        Rect hint = m_niriDragSession.target->viewportGlobal;
+        if (const auto nativeTarget = m_niriDragSession.target->nativeTarget.lock()) {
+            if (const auto *managed = managedWindowFor(m_state, nativeTarget, true))
+                hint = currentPreviewRect(*managed);
+        }
+        if (usableRect(hint))
+            renderOutline(hint, CHyprColor(0.95, 0.97, 1.0, 0.75), 2.0);
+        return;
+    }
+
+    if (m_niriDragSession.target->floating)
         return;
 
     const Rect hint = overviewRect(m_niriDragSession.target->insertion.hint);

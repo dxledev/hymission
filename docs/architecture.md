@@ -1,7 +1,7 @@
 # Hymission Architecture
 
-This is a concise architecture map. For the current implementation, direct-niri
-deep dive, complex-function explanations, and complete file catalog, see
+This is a concise architecture map. For the current implementation, unified
+overview deep dive, complex-function explanations, and complete file catalog, see
 [`codebase-guide.md`](codebase-guide.md). The source files now also carry module
 headers and comments beside the difficult orchestration functions.
 
@@ -10,17 +10,17 @@ headers and comments beside the difficult orchestration functions.
 - Hyprland owns real windows, workspaces, layouts, focus, and scrolling columns.
 - Hymission owns the temporary overview scene, preview projection, animation,
   selection, and input routing.
-- Normal overview geometry is computed by a pure layout engine.
-- Direct-niri geometry is projected from Hyprland's live scrolling algorithm.
+- Native layout targets are projected into workspace lanes.
+- Scrolling-layout geometry is projected directly from Hyprland's live algorithm.
 - Pure policy and geometry remain independent of Hyprland so they can be tested.
 
 ## Modules
 
 ### Layout and pure logic
 
-- `src/mission_layout.{hpp,cpp}` computes grid and natural overview slots.
+- `src/mission_layout.{hpp,cpp}` retains the standalone grid and natural layout solvers used by the layout demo and tests.
 - `src/overview_logic.{hpp,cpp}` contains hit testing, navigation, gesture
-  decisions, strip geometry, and direct-niri scale helpers.
+  decisions, lane projection, strip geometry, and scrolling-layout scale helpers.
 - `src/overview_drag_logic.{hpp,cpp}` computes scrolling-layout insertion targets
   and edge-scroll velocity.
 
@@ -47,8 +47,8 @@ controller. Files under `tools/` exercise compositor-independent logic.
 
 1. A dispatcher or gesture calls the controller.
 2. `buildState()` collects compositor objects and constructs a renderable scene.
-3. Normal mode assigns independent slots; direct-niri mode projects live layout
-   targets into workspace lanes.
+3. Each workspace is projected into a lane; normal layouts use native targets
+   and scrolling layouts use Hyprland's live scrolling geometry.
 4. render hooks transform live surfaces without resizing the client.
 5. input operates on the projected rectangles.
 6. edits are sent back through Hyprland, then the scene is rebuilt or retargeted

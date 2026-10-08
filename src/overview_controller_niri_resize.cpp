@@ -213,7 +213,7 @@ std::optional<std::pair<PHLWINDOW, Rect>> OverviewController::directNiriMouseRes
     const Vector2D pointer = g_pInputManager->getMouseCoordsInternal();
     const auto eligible = [&](const PHLWINDOW& window) {
         return window && window->m_isMapped && !hyprland_compat::windowIsFadingOut(window) && !window->m_pinned && !window->onSpecialWorkspace() && window->m_workspace &&
-            isScrollingWorkspace(window->m_workspace) && hasManagedWindow(window) && window->layoutTarget();
+            hasManagedWindow(window) && window->layoutTarget();
     };
 
     if (const auto stripIndex = hitTestStripTarget(pointer.x, pointer.y); stripIndex && *stripIndex < m_state.stripEntries.size()) {
@@ -393,7 +393,10 @@ void OverviewController::finishDirectNiriMouseResize(bool refreshLayout) {
 
     if (window->m_workspace)
         refreshWorkspaceLayoutSnapshot(window->m_workspace);
-    refreshNiriScrollingOverviewAfterLayoutScroll("mouse-resize", &*previewRects);
+    if (isScrollingWorkspace(window->m_workspace))
+        refreshNiriScrollingOverviewAfterLayoutScroll("mouse-resize", &*previewRects);
+    else
+        rebuildVisibleState(preserveFocus ? selectedWindow() : window, true);
     if (!preserveFocus) {
         selectWindowInState(m_state, window);
         m_state.focusDuringOverview = window;
@@ -413,8 +416,11 @@ std::optional<Config::Actions::ActionResult> OverviewController::mouseActionHook
     if (!m_forwardingOverviewMouseBind || !activeDirectNiriSingleWorkspaceOverview() || m_state.phase != Phase::Active)
         return std::nullopt;
 
-    if (!action.starts_with("resizewindow"))
+    if (!action.starts_with("resizewindow")) {
+        if (!isScrollingWorkspace(activeLayoutWorkspace()))
+            return std::nullopt;
         return Config::Actions::SActionResult{};
+    }
 
     const int actionState = Config::Actions::state()->m_passPressed;
     if (actionState == 0) {

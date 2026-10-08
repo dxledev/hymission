@@ -600,9 +600,4 @@ std::optional<std::size_t> hitTestWorkspaceStrip(const std::vector<Rect>& rects,
     return hitTest(rects, x, y);
 }
 
-bool directNiriScrollingOverviewDisablesWorkspaceStrip(bool niriModeEnabled, bool onlyActiveWorkspace,
-                                                       bool ownerWorkspaceScrolling, bool focusedWorkspaceScrolling) {
-    return niriModeEnabled && onlyActiveWorkspace && (ownerWorkspaceScrolling || focusedWorkspaceScrolling);
-}
-
 } // namespace hymission

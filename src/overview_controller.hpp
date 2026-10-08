@@ -131,6 +131,8 @@ class OverviewController {
     [[nodiscard]] SDispatchResult focusWorkspaceOnCurrentMonitorDispatcherHook(std::string args);
     [[nodiscard]] SDispatchResult layoutMessageDispatcherHook(std::string args);
     [[nodiscard]] SDispatchResult moveFocusDispatcherHook(std::string args);
+    [[nodiscard]] bool nativeLayoutOverviewActive() const;
+    void refreshNativeLayoutOverview(PHLWINDOW preferredWindow = {});
     [[nodiscard]] std::optional<Config::Actions::ActionResult> layoutMessageActionHook(const std::string& msg);
     [[nodiscard]] std::optional<Config::Actions::ActionResult> moveInDirectionActionHook(Math::eDirection direction,
                                                                                         std::optional<PHLWINDOW> window);
@@ -192,7 +194,7 @@ class OverviewController {
 
     struct CollectionPolicy {
         ScopeOverride requestedScope = ScopeOverride::Default;
-        bool          onlyActiveWorkspace = false;
+        bool          onlyActiveWorkspace = true;
         bool          onlyActiveMonitor = true;
         bool          includeSpecial = false;
     };
@@ -281,8 +283,7 @@ class OverviewController {
         bool      changeLogged = false;
     };
 
-    // Internal window-drag state. The pure overview_drag module computes the
-    // insertion record; this session tracks compositor ownership and timing.
+    // Scrolling drops carry an insertion record; native drops carry a tiled target.
     struct NiriDragTarget {
         PHLWORKSPACE                workspace;
         PHLMONITOR                  monitor;
@@ -290,6 +291,8 @@ class OverviewController {
         Rect                        viewportGlobal;
         overview_drag::InsertTarget insertion;
         bool                        floating = false;
+        bool                        nativeLayout = false;
+        PHLWINDOWREF                nativeTarget;
     };
 
     struct NiriDragSession {
@@ -717,7 +720,7 @@ class OverviewController {
                                                                               const PHLWORKSPACE& sourceWorkspace, const PHLMONITOR& sourceMonitor,
                                                                               const PHLWORKSPACE& targetWorkspace, const PHLWINDOW& selectedBefore,
                                                                               bool explicitWindowArg, const DispatcherHandler& silentDispatcher);
-    void                       processScheduledVisibleStateRebuild(bool transitionActiveWhenScheduled);
+    void                       processScheduledVisibleStateRebuild(bool transitionActiveWhenScheduled, bool forceRelayout);
     void                       restoreWrappedDispatchers();
 
     [[nodiscard]] bool         isAnimating() const;
@@ -1068,6 +1071,11 @@ class OverviewController {
     void               clearDirectNiriDndTimer();
     void               suppressDirectNiriDndSurfaceFocus() const;
     [[nodiscard]] bool updateDirectNiriDndSurfaceFocus(const std::optional<NiriDndTarget>& target) const;
+    [[nodiscard]] Rect nativeOverviewDragViewport(const PHLWORKSPACE& workspace, const PHLMONITOR& monitor, const Rect& fallback) const;
+    [[nodiscard]] std::optional<NiriDragTarget> nativeOverviewDragTarget(const PHLWORKSPACE& workspace, const PHLMONITOR& monitor,
+                                                                          WORKSPACEID workspaceId, const Rect& viewport,
+                                                                          const Vector2D& pointer, const PHLWINDOW& draggedWindow) const;
+    [[nodiscard]] std::optional<NiriDragTarget> nativeOverviewDragTargetAt(const Vector2D& pointer, const PHLWINDOW& draggedWindow) const;
     [[nodiscard]] std::optional<NiriDragTarget> directNiriDragTargetAt(const Vector2D& pointer) const;
     [[nodiscard]] bool applyDirectNiriDragTarget(const PHLWINDOW& window, const NiriDragTarget& target,
                                                   const PreviewRectSnapshot& previousPreviewRects, const Rect& releasePreviewRect);

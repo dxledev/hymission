@@ -86,6 +86,22 @@ bool testNamespacePatterns() {
     return ok;
 }
 
+bool testWorkspaceLaneProjection() {
+    bool ok = true;
+    const Rect workspaceArea{100, 50, 1600, 900};
+    ok &= expectRect(transformLiveOverviewRect({500, 230, 400, 225}, workspaceArea, {300, 250, 640, 360}),
+                     {460, 322, 160, 90}, "workspace lane projection should preserve each window's relative position and size");
+    ok &= expectRect(transformLiveOverviewRect({500, 230, 400, 225}, workspaceArea, {300, 200, 500, 400}),
+                     {425, 315.625, 125, 70.3125}, "workspace lane projection should preserve aspect ratio and center letterboxed content");
+    ok &= expectRect(transformLiveOverviewRect({500, 230, 400, 225}, workspaceArea, {300, 600, 500, 400}),
+                     {425, 715.625, 125, 70.3125}, "the same native target should follow its workspace lane offset");
+    ok &= expectRect(transformLiveOverviewRect({900, 350, 600, 300}, workspaceArea, {300, 250, 640, 360}),
+                     {620, 370, 240, 120}, "updated native layout targets should map into the lane after a compositor dispatch");
+    ok &= expectRect(transformLiveOverviewRect({100, 50, 1600, 900}, workspaceArea, {300, 220, 320, 180}),
+                     {300, 220, 320, 180}, "workspace viewport projection should scale uniformly to the lane dimensions");
+    return ok;
+}
+
 } // namespace
 
 int main() {
@@ -100,6 +116,7 @@ int main() {
 
     bool ok = testOverviewRounding();
     ok &= testNamespacePatterns();
+    ok &= testWorkspaceLaneProjection();
 
     ok &= expect(hitTest(rects, 50, 50) == std::optional<std::size_t>{0}, "hitTest should find top-left rect");
     ok &= expect(hitTest(rects, 180, 180) == std::optional<std::size_t>{3}, "hitTest should find bottom-right rect");
@@ -340,14 +357,5 @@ int main() {
 
     ok &= expect(hitTestWorkspaceStrip(topSlots, 120, 10) == std::optional<std::size_t>{1}, "strip hit-test should find the matching slot");
     ok &= expect(!hitTestWorkspaceStrip(topSlots, 100, 10).has_value(), "strip hit-test should miss strip gaps");
-    ok &= expect(directNiriScrollingOverviewDisablesWorkspaceStrip(true, true, true, false),
-                 "direct niri scrolling overview should disable the workspace preview strip");
-    ok &= expect(directNiriScrollingOverviewDisablesWorkspaceStrip(true, true, false, true),
-                 "focused scrolling workspace should disable the workspace preview strip");
-    ok &= expect(!directNiriScrollingOverviewDisablesWorkspaceStrip(true, false, true, true),
-                 "multi-workspace niri overview should preserve its existing strip policy");
-    ok &= expect(!directNiriScrollingOverviewDisablesWorkspaceStrip(false, true, true, true),
-                 "non-niri overview should preserve its existing strip policy");
-
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

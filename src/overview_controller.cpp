@@ -460,7 +460,17 @@ void clearExpiredOverviewHeavyEditInputBarrier() {
 bool shouldSuppressNativeActionDuringOverviewOpen(bool delayedHeavyEdit = false) {
     clearExpiredOverviewOpenInputBarrier();
     clearExpiredOverviewHeavyEditInputBarrier();
-    return g_controller && (overviewOpenInputBarrierActive() || (delayedHeavyEdit && overviewHeavyEditInputBarrierActive()));
+    return g_controller && !g_controller->nativeLayoutOverviewActive() &&
+        (overviewOpenInputBarrierActive() || (delayedHeavyEdit && overviewHeavyEditInputBarrierActive()));
+}
+
+template<typename Action>
+Config::Actions::ActionResult runNativeActionAndRefresh(Action&& action, PHLWINDOW preferredWindow = {}) {
+    const bool nativeOverview = g_controller && g_controller->nativeLayoutOverviewActive();
+    auto result = std::forward<Action>(action)();
+    if (result && nativeOverview && g_controller)
+        g_controller->refreshNativeLayoutOverview(preferredWindow);
+    return result;
 }
 
 Config::Actions::ActionResult hkLayoutMessageAction(const std::string& msg) {
@@ -472,14 +482,18 @@ Config::Actions::ActionResult hkLayoutMessageAction(const std::string& msg) {
             return std::move(*handled);
     }
 
-    return g_layoutMessageActionOriginal ? g_layoutMessageActionOriginal(msg) : Config::Actions::ActionResult{};
+    return runNativeActionAndRefresh([&] {
+        return g_layoutMessageActionOriginal ? g_layoutMessageActionOriginal(msg) : Config::Actions::ActionResult{};
+    });
 }
 
 Config::Actions::ActionResult hkMoveFocusAction(Math::eDirection direction) {
     if (shouldSuppressNativeActionDuringOverviewOpen())
         return {};
 
-    return g_moveFocusActionOriginal ? g_moveFocusActionOriginal(direction) : Config::Actions::ActionResult{};
+    return runNativeActionAndRefresh([&] {
+        return g_moveFocusActionOriginal ? g_moveFocusActionOriginal(direction) : Config::Actions::ActionResult{};
+    });
 }
 
 Config::Actions::ActionResult hkMoveInDirectionAction(Math::eDirection direction, std::optional<PHLWINDOW> window) {
@@ -491,21 +505,27 @@ Config::Actions::ActionResult hkMoveInDirectionAction(Math::eDirection direction
             return std::move(*handled);
     }
 
-    return g_moveInDirectionActionOriginal ? g_moveInDirectionActionOriginal(direction, std::move(window)) : Config::Actions::ActionResult{};
+    return runNativeActionAndRefresh([&] {
+        return g_moveInDirectionActionOriginal ? g_moveInDirectionActionOriginal(direction, window) : Config::Actions::ActionResult{};
+    }, window.value_or(PHLWINDOW{}));
 }
 
 Config::Actions::ActionResult hkSwapInDirectionAction(Math::eDirection direction, std::optional<PHLWINDOW> window) {
     if (shouldSuppressNativeActionDuringOverviewOpen())
         return {};
 
-    return g_swapInDirectionActionOriginal ? g_swapInDirectionActionOriginal(direction, std::move(window)) : Config::Actions::ActionResult{};
+    return runNativeActionAndRefresh([&] {
+        return g_swapInDirectionActionOriginal ? g_swapInDirectionActionOriginal(direction, window) : Config::Actions::ActionResult{};
+    }, window.value_or(PHLWINDOW{}));
 }
 
 Config::Actions::ActionResult hkResizeAction(const Vector2D& size, bool relative, std::optional<PHLWINDOW> window) {
     if (shouldSuppressNativeActionDuringOverviewOpen(true))
         return {};
 
-    return g_resizeActionOriginal ? g_resizeActionOriginal(size, relative, std::move(window)) : Config::Actions::ActionResult{};
+    return runNativeActionAndRefresh([&] {
+        return g_resizeActionOriginal ? g_resizeActionOriginal(size, relative, window) : Config::Actions::ActionResult{};
+    }, window.value_or(PHLWINDOW{}));
 }
 
 Config::Actions::ActionResult hkMouseAction(const std::string& action) {
@@ -526,7 +546,9 @@ Config::Actions::ActionResult hkFloatWindowAction(Config::Actions::eTogglableAct
             return std::move(*handled);
     }
 
-    return g_floatWindowActionOriginal ? g_floatWindowActionOriginal(action, std::move(window)) : Config::Actions::ActionResult{};
+    return runNativeActionAndRefresh([&] {
+        return g_floatWindowActionOriginal ? g_floatWindowActionOriginal(action, window) : Config::Actions::ActionResult{};
+    }, window.value_or(PHLWINDOW{}));
 }
 
 enum class GestureDispatcherKind : uint8_t {
@@ -651,7 +673,6 @@ uint64_t layoutAffectingConfigSignature(HANDLE handle) {
     mixInt("plugin:hymission:expand_selected_window", 1);
     mixInt("plugin:hymission:multi_workspace_expand_selected_window", 1);
     mixInt("plugin:hymission:multi_workspace_sort_recent_first", 1);
-    mixInt("plugin:hymission:niri_mode", 0);
     mixFloat("plugin:hymission:niri_layout_scale", 1.0);
     mixFloat("plugin:hymission:niri_overview_scale", 0.65);
     mixFloat("plugin:hymission:niri_window_gaps", -1.0);
@@ -681,7 +702,6 @@ uint64_t layoutAffectingConfigSignature(HANDLE handle) {
     mixInt("plugin:hymission:niri_overview_animations", 1);
     mixFloat("plugin:hymission:niri_overview_open_close_speed_multiplier", 1.5);
     mixInt("plugin:hymission:one_workspace_per_row", 0);
-    mixInt("plugin:hymission:only_active_workspace", 0);
     mixInt("plugin:hymission:only_active_monitor", 0);
     mixInt("plugin:hymission:show_special", 0);
     mixInt("plugin:hymission:workspace_strip_thickness", 160);
@@ -2799,10 +2819,37 @@ bool niri_scrolling_detail::isActiveController(const OverviewController* control
     return g_controller == controller;
 }
 
+bool OverviewController::nativeLayoutOverviewActive() const {
+    return isVisible() && (m_state.phase == Phase::Opening || m_state.phase == Phase::Active) && niriModeAppliesToState(m_state) &&
+        !isScrollingWorkspace(activeLayoutWorkspace());
+}
+
+void OverviewController::refreshNativeLayoutOverview(PHLWINDOW preferredWindow) {
+    if (!nativeLayoutOverviewActive() || m_overviewEditingDispatcherInProgress || m_applyingWorkspaceTransitionCommit || m_niriDragSession.active)
+        return;
+
+    const auto activeWorkspace = m_state.ownerMonitor ? m_state.ownerMonitor->m_activeWorkspace : PHLWORKSPACE{};
+    const auto validFocus = [&](const PHLWINDOW& window) {
+        return window && window->m_isMapped && hasManagedWindow(window) && (window->m_pinned || window->m_workspace == activeWorkspace);
+    };
+    if (!validFocus(preferredWindow))
+        preferredWindow = Desktop::focusState()->window();
+    if (!validFocus(preferredWindow))
+        preferredWindow = selectedWindow();
+    if (!validFocus(preferredWindow))
+        preferredWindow = {};
+
+    if (insideRenderLifecycle() || m_workspaceTransition.active)
+        scheduleVisibleStateRebuild();
+    else
+        rebuildVisibleState(preferredWindow, true);
+    damageOwnedMonitors();
+}
+
 PHLWINDOW OverviewController::directNiriFloatActionTarget(const std::optional<PHLWINDOW>& window) const {
     const auto validTarget = [&](const PHLWINDOW& candidate) -> PHLWINDOW {
         if (!candidate || !candidate->m_isMapped || hyprland_compat::windowIsFadingOut(candidate) || candidate->m_pinned || candidate->onSpecialWorkspace() ||
-            !candidate->m_workspace || candidate->m_workspace->m_isSpecialWorkspace || !isScrollingWorkspace(candidate->m_workspace) ||
+            !candidate->m_workspace || candidate->m_workspace->m_isSpecialWorkspace ||
             !hasManagedWindow(candidate))
             return {};
 
@@ -2975,8 +3022,15 @@ PHLWINDOW OverviewController::closestTiledDirectNiriGeometryAnchor(const PHLWIND
 }
 
 bool OverviewController::hardRecalculateDirectNiriGeometryAnchor(const PHLWINDOW& anchor, const char* source) {
-    if (!anchor || !anchor->m_isMapped || !hasManagedWindow(anchor) || !anchor->m_workspace || !isScrollingWorkspace(anchor->m_workspace))
+    if (!anchor || !anchor->m_isMapped || !hasManagedWindow(anchor) || !anchor->m_workspace)
         return false;
+
+    if (!isScrollingWorkspace(anchor->m_workspace)) {
+        commitNonScrollingWorkspaceLayout(anchor->m_workspace);
+        rebuildVisibleState(anchor, true);
+        damageOwnedMonitors();
+        return true;
+    }
 
     auto* const scrolling = scrollingAlgorithmForWorkspace(anchor->m_workspace);
     const auto  target = anchor->layoutTarget();
@@ -3130,8 +3184,16 @@ void OverviewController::refreshDirectNiriSetFloatingActionTarget(const PHLWINDO
 
 void OverviewController::refreshDirectNiriFloatActionTarget(const PHLWINDOW& window, bool tiledNow, const char* source,
                                                             const PreviewRectSnapshot* previousPreviewRects) {
-    if (!window || !window->m_isMapped || !window->m_workspace || !isScrollingWorkspace(window->m_workspace))
+    if (!window || !window->m_isMapped || !window->m_workspace)
         return;
+
+    if (!isScrollingWorkspace(window->m_workspace)) {
+        clearDirectNiriNativeFloatingGeometryPreview(window);
+        commitNonScrollingWorkspaceLayout(window->m_workspace);
+        rebuildVisibleState(window, true);
+        damageOwnedMonitors();
+        return;
+    }
 
     if (tiledNow)
         clearDirectNiriNativeFloatingGeometryPreview(window);
@@ -3242,12 +3304,12 @@ std::optional<Config::Actions::ActionResult> OverviewController::floatWindowActi
 }
 
 bool OverviewController::forwardDirectNiriMouseResizeBind(const IPointer::SButtonEvent& event) {
-    if (!g_mouseActionOriginal || !g_pKeybindManager || event.button != BTN_RIGHT ||
+    if (!g_mouseActionOriginal || !g_pKeybindManager || (event.button != BTN_RIGHT && isScrollingWorkspace(activeLayoutWorkspace())) ||
         (event.state != WL_POINTER_BUTTON_STATE_PRESSED && event.state != WL_POINTER_BUTTON_STATE_RELEASED))
         return false;
 
     updateHoveredFromPointer(false, false, false, false, "mouse-resize-bind");
-    if (event.state == WL_POINTER_BUTTON_STATE_RELEASED && m_directNiriMouseResizePreservesFocus)
+    if (event.button == BTN_RIGHT && event.state == WL_POINTER_BUTTON_STATE_RELEASED && m_directNiriMouseResizePreservesFocus)
         finishDirectNiriMouseResize(true);
 
     const ScopedFlag forwardingGuard(m_forwardingOverviewMouseBind);
@@ -4958,8 +5020,15 @@ bool OverviewController::handleMouseButton(const IPointer::SButtonEvent& event) 
         return true;
     }
 
-    if (effectiveButton != BTN_LEFT)
+    if (effectiveButton != BTN_LEFT) {
+        if (m_state.phase == Phase::Active && activeDirectNiriSingleWorkspaceOverview() && !isScrollingWorkspace(activeLayoutWorkspace())) {
+            auto forwardedEvent = event;
+            forwardedEvent.button = effectiveButton;
+            forwardedEvent.state = effectiveState;
+            return forwardDirectNiriMouseResizeBind(forwardedEvent);
+        }
         return true;
+    }
 
     if (effectiveState == WL_POINTER_BUTTON_STATE_PRESSED)
         m_primaryButtonPressed = true;
@@ -5036,7 +5105,7 @@ bool OverviewController::handleMouseButton(const IPointer::SButtonEvent& event) 
                     // the window set is unchanged but the window's workspace/lane changed.
                     selectWindowInState(m_state, window);
                     m_state.focusDuringOverview = window;
-                    if (niriModeAppliesToState(m_state) && m_state.collectionPolicy.onlyActiveWorkspace && isScrollingWorkspace(targetWorkspace)) {
+                    if (niriModeAppliesToState(m_state) && m_state.collectionPolicy.onlyActiveWorkspace) {
                         m_state.ownerWorkspace = targetWorkspace;
                         const auto targetMonitorForActivity = entry.monitor ? entry.monitor : targetWorkspace->m_monitor.lock();
                         (void)refreshWorkspaceStripActivity(m_state, targetMonitorForActivity, targetWorkspace->m_id);
@@ -5097,8 +5166,7 @@ bool OverviewController::handleMouseButton(const IPointer::SButtonEvent& event) 
             const auto pressedIndex = *m_pressedWindowIndex;
             const auto pressedWindow = m_state.windows[pressedIndex].window;
             const bool directNiriPressedWindow =
-                usesDirectNiriScrollingOverview(m_state) && m_state.collectionPolicy.onlyActiveWorkspace && pressedWindow && pressedWindow->m_workspace &&
-                isScrollingWorkspace(pressedWindow->m_workspace);
+                usesDirectNiriScrollingOverview(m_state) && m_state.collectionPolicy.onlyActiveWorkspace && pressedWindow && pressedWindow->m_workspace;
             const bool wasAlreadySelected = m_state.selectedIndex && *m_state.selectedIndex == pressedIndex;
 
             if (directNiriPressedWindow && !wasAlreadySelected) {
@@ -5260,15 +5328,14 @@ bool OverviewController::handleMouseButton(const IPointer::SButtonEvent& event) 
     if (effectiveHoveredIndex) {
         const auto clickedIndex = *effectiveHoveredIndex;
         const auto clickedWindow = clickedIndex < m_state.windows.size() ? m_state.windows[clickedIndex].window : PHLWINDOW{};
-        const bool directNiriSingleWorkspaceScrollClick =
-            usesDirectNiriScrollingOverview(m_state) && m_state.collectionPolicy.onlyActiveWorkspace && clickedWindow && clickedWindow->m_workspace &&
-            isScrollingWorkspace(clickedWindow->m_workspace);
+        const bool directNiriSingleWorkspaceClick =
+            usesDirectNiriScrollingOverview(m_state) && m_state.collectionPolicy.onlyActiveWorkspace && clickedWindow && clickedWindow->m_workspace;
         const auto clickedWorkspace = clickedWindow && !clickedWindow->m_pinned ? clickedWindow->m_workspace : PHLWORKSPACE{};
         const auto currentNiriWorkspace = m_state.ownerWorkspace ? m_state.ownerWorkspace : activeLayoutWorkspace();
-        const bool directNiriCrossWorkspaceClick = directNiriSingleWorkspaceScrollClick && clickedWorkspace && currentNiriWorkspace &&
+        const bool directNiriCrossWorkspaceClick = directNiriSingleWorkspaceClick && clickedWorkspace && currentNiriWorkspace &&
             clickedWorkspace != currentNiriWorkspace && !clickedWorkspace->m_isSpecialWorkspace;
 
-        if (directNiriSingleWorkspaceScrollClick) {
+        if (directNiriSingleWorkspaceClick) {
             clearStripWindowDragState();
 
             // Match Niri's grab semantics: button press only arms a possible
@@ -5342,7 +5409,7 @@ bool OverviewController::handleMouseButton(const IPointer::SButtonEvent& event) 
 
         if (niriModeAppliesToState(m_state) && m_state.selectedIndex && clickedIndex != *m_state.selectedIndex) {
             const auto previousSelectedWindow = selectedWindow();
-            const auto previousPreviewRects = directNiriSingleWorkspaceScrollClick ? captureCurrentPreviewRects() : PreviewRectSnapshot{};
+            const auto previousPreviewRects = directNiriSingleWorkspaceClick ? captureCurrentPreviewRects() : PreviewRectSnapshot{};
             m_state.selectedIndex = clickedIndex;
             m_state.focusDuringOverview = clickedWindow;
             m_queuedOverviewSelectionTarget.reset();
@@ -5354,7 +5421,7 @@ bool OverviewController::handleMouseButton(const IPointer::SButtonEvent& event) 
             m_pressedWindowIndex.reset();
             m_pressedWindowPointer = g_pInputManager->getMouseCoordsInternal();
             latchHoverSelectionAnchor(m_pressedWindowPointer);
-            if (directNiriSingleWorkspaceScrollClick) {
+            if (directNiriSingleWorkspaceClick) {
                 syncRealFocusDuringOverview(clickedWindow, true, &previousPreviewRects, true);
             } else if (clickedWindow) {
                 (void)syncScrollingWorkspaceSpotOnWindow(
@@ -5363,7 +5430,7 @@ bool OverviewController::handleMouseButton(const IPointer::SButtonEvent& event) 
                     ScrollingSpotSyncIntent::PreserveNativeCamera);
             }
             updateSelectedWindowLayout(previousSelectedWindow);
-            if (!directNiriSingleWorkspaceScrollClick)
+            if (!directNiriSingleWorkspaceClick)
                 refreshNiriScrollingOverviewAfterLayoutScroll("niri-click-focus");
             damageOwnedMonitors();
             return true;
@@ -5425,9 +5492,10 @@ void OverviewController::handleKeyboard(const IKeyboard::SKeyEvent& event, Event
     const uint32_t     modifiers = keyboard->getModifiers();
     const bool         hasActionModifier = (modifiers & (HL_MODIFIER_META | HL_MODIFIER_SHIFT | HL_MODIFIER_CTRL | HL_MODIFIER_ALT)) != 0;
     const bool         disablePlainOverviewArrowAndEnter =
-        niriModeAppliesToState(m_state) && m_state.collectionPolicy.onlyActiveWorkspace && isScrollingWorkspace(activeLayoutWorkspace());
+        niriModeAppliesToState(m_state) && m_state.collectionPolicy.onlyActiveWorkspace;
     const bool         directionalEditKey = keysym == XKB_KEY_Left || keysym == XKB_KEY_Right || keysym == XKB_KEY_Up || keysym == XKB_KEY_Down;
     const bool         openingInputBarrier = isVisible() && m_state.collectionPolicy.onlyActiveWorkspace && niriModeEnabled() &&
+        isScrollingWorkspace(activeLayoutWorkspace()) &&
         (m_state.phase == Phase::Opening || (m_overviewVisibilityAnimation && m_overviewVisibilityAnimation->isBeingAnimated()) ||
          m_postOpenRefreshFrames > 0 || overviewOpenInputBarrierActive());
     if (openingInputBarrier && hasActionModifier && directionalEditKey) {
@@ -5451,7 +5519,7 @@ void OverviewController::handleKeyboard(const IKeyboard::SKeyEvent& event, Event
     }
 
     const bool hasSuperOnly = (modifiers & HL_MODIFIER_META) != 0 && (modifiers & (HL_MODIFIER_SHIFT | HL_MODIFIER_CTRL | HL_MODIFIER_ALT)) == 0;
-    if (hasSuperOnly && (keysym == XKB_KEY_Return || keysym == XKB_KEY_KP_Enter)) {
+    if (hasSuperOnly && isScrollingWorkspace(activeLayoutWorkspace()) && (keysym == XKB_KEY_Return || keysym == XKB_KEY_KP_Enter)) {
         bool launched = false;
         if (g_pKeybindManager) {
             const auto dispatcher = g_pKeybindManager->m_dispatchers.find("exec");
@@ -5475,7 +5543,10 @@ void OverviewController::handleKeyboard(const IKeyboard::SKeyEvent& event, Event
     bool handled = true;
     switch (keysym) {
         case XKB_KEY_Escape:
-            (void)close();
+            if (hasActionModifier && !isScrollingWorkspace(activeLayoutWorkspace()))
+                handled = false;
+            else
+                (void)close();
             break;
         case XKB_KEY_Return:
         case XKB_KEY_KP_Enter:
@@ -5778,9 +5849,9 @@ bool OverviewController::shouldRenderWindowHook(const PHLWINDOW& window, const P
         const bool directNiriSingleWorkspace = (usesDirectNiriScrollingOverview(m_state) || niriModeAppliesToState(m_state)) &&
             m_state.collectionPolicy.onlyActiveWorkspace;
         const bool directNiriPreviewWindow = !isFloatingOverviewWindow(window) || managed->isNiriFloatingOverlay;
-        const bool inactiveScrollingPreview = directNiriSingleWorkspace && window->m_workspace && isScrollingWorkspace(window->m_workspace) &&
+        const bool inactiveWorkspacePreview = directNiriSingleWorkspace && window->m_workspace &&
             !directNiriWorkspaceReadyForNativeRender(window->m_workspace) && !window->m_pinned && directNiriPreviewWindow;
-        if (inactiveScrollingPreview) {
+        if (inactiveWorkspacePreview) {
             const bool transferGuard = niri_scrolling_detail::directNiriWorkspaceTransferRenderGuardActive(window);
             static std::size_t s_inactiveNativePassLogBudget = 160;
             if (debugLogsEnabled() && s_inactiveNativePassLogBudget > 0) {
@@ -6626,7 +6697,7 @@ OverviewController::CollectionPolicy OverviewController::loadCollectionPolicy(Sc
     if (requestedScope == ScopeOverride::ForceAll) {
         return {
             .requestedScope = requestedScope,
-            .onlyActiveWorkspace = false,
+            .onlyActiveWorkspace = true,
             .onlyActiveMonitor = false,
             .includeSpecial = true,
         };
@@ -6634,7 +6705,7 @@ OverviewController::CollectionPolicy OverviewController::loadCollectionPolicy(Sc
 
     return {
         .requestedScope = requestedScope,
-        .onlyActiveWorkspace = getConfigInt(m_handle, "plugin:hymission:only_active_workspace", 0) != 0,
+        .onlyActiveWorkspace = true,
         .onlyActiveMonitor = getConfigInt(m_handle, "plugin:hymission:only_active_monitor", 0) != 0,
         .includeSpecial = getConfigInt(m_handle, "plugin:hymission:show_special", 0) != 0,
     };
@@ -6926,7 +6997,7 @@ double OverviewController::workspaceStripLabelOpacity() const {
 
 
 bool OverviewController::workspaceStripEnabled(const State& state) const {
-    return state.collectionPolicy.onlyActiveWorkspace && !state.suppressWorkspaceStrip && !shouldDisableWorkspaceStripForNiriPreview(state);
+    return false;
 }
 
 bool OverviewController::isStripOnlyOverviewState(const State& state) const {
@@ -9302,7 +9373,7 @@ void OverviewController::setScrollingFollowFocusOverride(bool disable) {
     if (!disable && m_restoreScrollingFollowFocusAfterScrollMouseMove)
         m_restoreScrollingFollowFocusAfterScrollMouseMove = false;
 
-    if (!hasScrollingWorkspace() && !isScrollingWorkspace(activeLayoutWorkspace()))
+    if (disable && !hasScrollingWorkspace() && !isScrollingWorkspace(activeLayoutWorkspace()))
         return;
 
     if (disable) {
@@ -9673,7 +9744,7 @@ bool OverviewController::installHooks() {
                 const bool openVisibilityAnimationActive =
                     m_overviewVisibilityAnimation && m_overviewVisibilityAnimation->isBeingAnimated();
                 const bool openingNiriSingleWorkspaceDispatcherGate = !hymissionControlDispatcher && isVisible() &&
-                    m_state.collectionPolicy.onlyActiveWorkspace && niriModeEnabled() &&
+                    m_state.collectionPolicy.onlyActiveWorkspace && niriModeEnabled() && isScrollingWorkspace(activeLayoutWorkspace()) &&
                     (m_state.phase == Phase::Opening || openVisibilityAnimationActive || m_postOpenRefreshFrames > 0 || openDispatcherCooldownActive ||
                      delayedHeavyEditCooldownActive);
 
@@ -10435,7 +10506,7 @@ float OverviewController::hyprlandPreviewAlphaFor(const PHLWINDOW& window) const
     if (!window)
         return 1.0F;
 
-    const bool directNiriPreview = niriModeEnabled() && window->m_workspace && isScrollingWorkspace(window->m_workspace) && !window->m_pinned &&
+    const bool directNiriPreview = niriModeEnabled() && window->m_workspace && !window->m_pinned &&
         m_state.collectionPolicy.onlyActiveWorkspace;
     if (!directNiriPreview)
         return std::clamp(window->alphaTotal(), 0.0F, 1.0F);
@@ -12735,14 +12806,15 @@ void OverviewController::scheduleVisibleStateRebuild() {
         return;
 
     const bool transitionActiveWhenScheduled = m_workspaceTransition.active;
+    const bool forceRelayout = nativeLayoutOverviewActive();
     if (!g_pEventLoopManager) {
-        processScheduledVisibleStateRebuild(transitionActiveWhenScheduled);
+        processScheduledVisibleStateRebuild(transitionActiveWhenScheduled, forceRelayout);
         return;
     }
 
     m_visibleStateRebuildScheduled = true;
     const auto generation = ++m_visibleStateRebuildGeneration;
-    g_pEventLoopManager->doLater([this, generation, transitionActiveWhenScheduled] {
+    g_pEventLoopManager->doLater([this, generation, transitionActiveWhenScheduled, forceRelayout] {
         if (g_controller != this || generation != m_visibleStateRebuildGeneration)
             return;
 
@@ -12750,11 +12822,19 @@ void OverviewController::scheduleVisibleStateRebuild() {
         if (!isVisible() || m_state.phase == Phase::Closing || m_state.phase == Phase::ClosingSettle)
             return;
 
-        processScheduledVisibleStateRebuild(transitionActiveWhenScheduled);
+        processScheduledVisibleStateRebuild(transitionActiveWhenScheduled, forceRelayout);
     });
 }
 
-void OverviewController::processScheduledVisibleStateRebuild(bool transitionActiveWhenScheduled) {
+void OverviewController::processScheduledVisibleStateRebuild(bool transitionActiveWhenScheduled, bool forceRelayout) {
+    if (forceRelayout || nativeLayoutOverviewActive()) {
+        auto preferredWindow = Desktop::focusState()->window();
+        if (!preferredWindow || !hasManagedWindow(preferredWindow))
+            preferredWindow = selectedWindow();
+        rebuildVisibleState(preferredWindow, true);
+        return;
+    }
+
     if (m_workspaceTransition.active) {
         if (activeDirectNiriSingleWorkspaceOverview() && !transitionActiveWhenScheduled) {
             if (debugLogsEnabled())
@@ -13164,7 +13244,7 @@ void OverviewController::beginOpen(const PHLMONITOR& monitor, ScopeOverride requ
     carryOverWorkspaceStripSnapshots(next, m_state);
     m_state = std::move(next);
     g_openOverviewLayoutConfigSignatures[this] = layoutAffectingConfigSignature(m_handle);
-    if (m_state.collectionPolicy.onlyActiveWorkspace && niriModeAppliesToState(m_state)) {
+    if (m_state.collectionPolicy.onlyActiveWorkspace && niriModeAppliesToState(m_state) && isScrollingWorkspace(m_state.ownerWorkspace)) {
         armOverviewOpenInputBarrier(DIRECT_NIRI_OPEN_INPUT_BLOCK_FALLBACK);
         armOverviewHeavyEditInputBarrier(DIRECT_NIRI_OPEN_INPUT_BLOCK_FALLBACK + DIRECT_NIRI_HEAVY_EDIT_EXTRA_DELAY);
         const auto openDispatcherBlockUntil = std::chrono::steady_clock::now() + DIRECT_NIRI_OPEN_DISPATCHER_BLOCK_DURATION;
@@ -14330,6 +14410,14 @@ void OverviewController::updateHoveredFromPointer(bool syncSelection, bool syncR
 void OverviewController::refreshVisibleStateMetadata(PHLWINDOW preferredSelectedWindow, const PreviewRectSnapshot* relayoutOrigins, const char* relayoutSource) {
     if (!isVisible() || !m_state.ownerMonitor || !m_state.ownerWorkspace || m_workspaceTransition.active)
         return;
+
+    if (nativeLayoutOverviewActive()) {
+        if (insideRenderLifecycle())
+            scheduleVisibleStateRebuild();
+        else
+            rebuildVisibleState(preferredSelectedWindow, true);
+        return;
+    }
 
     const auto previousState = m_state;
     State next = buildState(m_state.ownerMonitor, m_state.collectionPolicy.requestedScope, {}, false, m_state.suppressWorkspaceStrip, preferredSelectedWindow, false);
@@ -15637,7 +15725,7 @@ void OverviewController::renderSelectionChrome() const {
             }
 
             const bool directNiriFloatingOverlay = managed.isNiriFloatingOverlay && isFloatingOverviewWindow(window);
-            if (!window->m_workspace || !isScrollingWorkspace(window->m_workspace) || window->m_pinned || managed.isPinned ||
+            if (!window->m_workspace || window->m_pinned || managed.isPinned ||
                 (!directNiriFloatingOverlay && isFloatingOverviewWindow(window))) {
                 ++skipped;
                 continue;
