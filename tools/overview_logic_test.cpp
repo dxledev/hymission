@@ -102,6 +102,97 @@ bool testWorkspaceLaneProjection() {
     return ok;
 }
 
+struct WorkspaceMapScene {
+    Rect nativeDesktopViewport{1920, 100, 1600, 900};
+    std::vector<Rect> laneViewports{{2300, 180, 400, 225}, {2300, 420, 400, 225}, {2300, 660, 400, 225}};
+    std::vector<Rect> nativeWindowRects{{2400, 330, 600, 340}, {2440, 340, 520, 300}, {2520, 380, 600, 360}};
+    std::vector<Rect> previewWindows;
+};
+
+struct WorkspaceMapCameraSources {
+    std::vector<Rect> lanes;
+    std::vector<Rect> windows;
+};
+
+WorkspaceMapScene makeWorkspaceMapScene() {
+    WorkspaceMapScene scene;
+    for (std::size_t index = 0; index < scene.laneViewports.size(); ++index)
+        scene.previewWindows.push_back(transformLiveOverviewRect(scene.nativeWindowRects[index], scene.nativeDesktopViewport, scene.laneViewports[index]));
+    return scene;
+}
+
+WorkspaceMapCameraSources workspaceMapCameraSources(const WorkspaceMapScene& scene, std::size_t selectedLane) {
+    WorkspaceMapCameraSources sources;
+    const Rect selectedOverviewViewport = scene.laneViewports[selectedLane];
+    for (std::size_t index = 0; index < scene.laneViewports.size(); ++index) {
+        sources.lanes.push_back(transformLiveOverviewRect(scene.laneViewports[index], selectedOverviewViewport, scene.nativeDesktopViewport));
+        sources.windows.push_back(transformLiveOverviewRect(scene.previewWindows[index], selectedOverviewViewport, scene.nativeDesktopViewport));
+    }
+    return sources;
+}
+
+bool expectWorkspaceMapFrame(const WorkspaceMapScene& scene, const WorkspaceMapCameraSources& sources, double openness) {
+    bool ok = true;
+    std::vector<Rect> visibleLanes;
+    std::vector<Rect> visibleWindows;
+    for (std::size_t index = 0; index < scene.laneViewports.size(); ++index) {
+        visibleLanes.push_back(lerpRect(sources.lanes[index], scene.laneViewports[index], openness));
+        visibleWindows.push_back(lerpRect(sources.windows[index], scene.previewWindows[index], openness));
+    }
+
+    constexpr double cameraScale = 4.0;
+    const double laneStep = scene.laneViewports[1].centerY() - scene.laneViewports[0].centerY();
+    const double expectedSeparation = laneStep * (cameraScale * (1.0 - openness) + openness);
+    ok &= expect(closeEnough(visibleLanes[1].centerY() - visibleLanes[0].centerY(), expectedSeparation) &&
+                     closeEnough(visibleLanes[2].centerY() - visibleLanes[1].centerY(), expectedSeparation),
+                 "workspace-map zoom should preserve lane order and scale separation at every openness sample");
+    ok &= expect(visibleLanes[0].centerY() < visibleLanes[1].centerY() && visibleLanes[1].centerY() < visibleLanes[2].centerY(),
+                 "adjacent workspace lanes should not collapse onto the selected lane during zoom");
+
+    for (std::size_t index = 0; index < scene.laneViewports.size(); ++index) {
+        const Rect& lane = visibleLanes[index];
+        const Rect& window = visibleWindows[index];
+        const Rect& previewLane = scene.laneViewports[index];
+        const Rect& previewWindow = scene.previewWindows[index];
+        ok &= expect(closeEnough((window.centerX() - lane.x) / lane.width, (previewWindow.centerX() - previewLane.x) / previewLane.width) &&
+                         closeEnough((window.centerY() - lane.y) / lane.height, (previewWindow.centerY() - previewLane.y) / previewLane.height) &&
+                         closeEnough(window.width / lane.width, previewWindow.width / previewLane.width) &&
+                         closeEnough(window.height / lane.height, previewWindow.height / previewLane.height),
+                     "each window should remain attached to its own lane throughout workspace-map zoom");
+        if (openness == 0.0)
+            ok &= expectRect(window, sources.windows[index], "closed windows should use their shared camera-source endpoints");
+        if (openness == 1.0)
+            ok &= expectRect(window, previewWindow, "open windows should finish at their lane preview rectangles");
+    }
+    return ok;
+}
+
+bool testWorkspaceMapZoomAcrossLanes() {
+    constexpr std::size_t activeLane = 1;
+    constexpr std::size_t exitSelectedLane = 2;
+    const WorkspaceMapScene scene = makeWorkspaceMapScene();
+    const WorkspaceMapCameraSources openingSources = workspaceMapCameraSources(scene, activeLane);
+    const WorkspaceMapCameraSources closingSources = workspaceMapCameraSources(scene, exitSelectedLane);
+
+    bool ok = true;
+    ok &= expectRect(openingSources.lanes[activeLane], scene.nativeDesktopViewport,
+                     "the active lane camera endpoint should cover the nonzero-origin desktop viewport");
+    ok &= expectRect(openingSources.windows[activeLane], scene.nativeWindowRects[activeLane],
+                     "the active lane window should return to its native rectangle at open");
+    ok &= expectRect(openingSources.lanes[0], {1920, -860, 1600, 900}, "the upper lane camera endpoint should retain its offset from the active lane");
+    ok &= expectRect(openingSources.lanes[2], {1920, 1060, 1600, 900}, "the lower lane camera endpoint should retain its offset from the active lane");
+    ok &= expectRect(closingSources.lanes[exitSelectedLane], scene.nativeDesktopViewport,
+                     "the newly selected lane should become the native desktop endpoint on close");
+    ok &= expectRect(closingSources.windows[exitSelectedLane], scene.nativeWindowRects[exitSelectedLane],
+                     "the close path should end at the selected lane's native window, not the original lane's window");
+
+    for (const double openness : {0.0, 0.25, 0.5, 0.75, 1.0})
+        ok &= expectWorkspaceMapFrame(scene, openingSources, openness);
+    for (const double openness : {1.0, 0.75, 0.5, 0.25, 0.0})
+        ok &= expectWorkspaceMapFrame(scene, closingSources, openness);
+    return ok;
+}
+
 } // namespace
 
 int main() {
@@ -117,6 +208,7 @@ int main() {
     bool ok = testOverviewRounding();
     ok &= testNamespacePatterns();
     ok &= testWorkspaceLaneProjection();
+    ok &= testWorkspaceMapZoomAcrossLanes();
 
     ok &= expect(hitTest(rects, 50, 50) == std::optional<std::size_t>{0}, "hitTest should find top-left rect");
     ok &= expect(hitTest(rects, 180, 180) == std::optional<std::size_t>{3}, "hitTest should find bottom-right rect");

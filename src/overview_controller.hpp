@@ -784,6 +784,10 @@ class OverviewController {
     void                       refreshWorkspaceLayoutSnapshot(const PHLWORKSPACE& workspace) const;
     void                       commitNonScrollingWorkspaceLayout(const PHLWORKSPACE& workspace) const;
     [[nodiscard]] std::optional<Vector2D> predictedScrollingExitTranslation(const PHLWINDOW& window) const;
+    [[nodiscard]] bool         applyNativeLayoutCameraGeometry(const PHLWORKSPACE& workspace, bool opening, bool* stable = nullptr);
+    [[nodiscard]] bool         applyNativeLayoutCameraOpenGeometry();
+    [[nodiscard]] bool         applyNativeLayoutCameraExitGeometry(const PHLWINDOW& window, const PHLWORKSPACE& workspace = {}, bool* stable = nullptr);
+    void                       prepareNativeLayoutCameraReopenGeometry();
     [[nodiscard]] bool         applyNiriScrollingCameraExitGeometry(const PHLWINDOW& window);
     [[nodiscard]] bool         applyNiriScrollingCameraExitGeometry(const EmptyWorkspacePlaceholder& placeholder);
     [[nodiscard]] bool         applyNiriScrollingCameraOpenGeometry(const PHLWINDOW& window);

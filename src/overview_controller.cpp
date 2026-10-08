@@ -7493,7 +7493,8 @@ bool OverviewController::beginTrackpadGesture(bool openOnly, ScopeOverride reque
                 m_state.relayoutStart = {};
             }
 
-            prepareGestureCloseExitGeometry();
+            if (!applyNativeLayoutCameraExitGeometry(resolveExitFocus(CloseMode::Normal), resolveExitWorkspace(CloseMode::Normal)))
+                prepareGestureCloseExitGeometry();
         } else {
             const auto monitor = hyprland_compat::compositor()->getMonitorFromCursor();
             if (!monitor)
@@ -7579,7 +7580,8 @@ bool OverviewController::beginTrackpadGesture(bool openOnly, ScopeOverride reque
             m_state.relayoutStart = {};
         }
 
-        prepareGestureCloseExitGeometry();
+        if (!applyNativeLayoutCameraExitGeometry(resolveExitFocus(CloseMode::Normal), resolveExitWorkspace(CloseMode::Normal)))
+            prepareGestureCloseExitGeometry();
     }
 
     m_gestureSession = {
@@ -7784,6 +7786,8 @@ void OverviewController::endTrackpadGesture(bool cancelled) {
 
         m_gestureSession = {};
         m_deactivatePending = false;
+        if (!gesture.opening)
+            prepareNativeLayoutCameraReopenGeometry();
         m_state.phase = Phase::Opening;
         m_state.animationProgress = 0.0;
         m_state.animationFromVisual = gesture.openness;
@@ -7833,6 +7837,7 @@ void OverviewController::endTrackpadGesture(bool cancelled) {
             m_state.animationStart = {};
         }
     } else {
+        prepareNativeLayoutCameraReopenGeometry();
         m_state.phase = Phase::Opening;
         m_state.animationProgress = 0.0;
         m_state.animationFromVisual = gesture.openness;
@@ -13253,12 +13258,14 @@ void OverviewController::beginOpen(const PHLMONITOR& monitor, ScopeOverride requ
             niri_scrolling_detail::workspaceSwitchDispatcherBlockUntil = openDispatcherBlockUntil;
         niri_scrolling_detail::workspaceSwitchDispatcherBlockRelayout = false;
     }
-    if (const auto* placeholder = directNiriEdgeCameraOpenPlaceholder(m_state)) {
-        (void)applyNiriScrollingCameraOpenGeometry(*placeholder);
-    } else if (const auto selected = selectedWindow(); selected) {
-        (void)applyNiriScrollingCameraOpenGeometry(selected);
-    } else if (const auto* placeholder = centeredEmptyWorkspacePlaceholder(m_state)) {
-        (void)applyNiriScrollingCameraOpenGeometry(*placeholder);
+    if (!applyNativeLayoutCameraOpenGeometry()) {
+        if (const auto* placeholder = directNiriEdgeCameraOpenPlaceholder(m_state)) {
+            (void)applyNiriScrollingCameraOpenGeometry(*placeholder);
+        } else if (const auto selected = selectedWindow(); selected) {
+            (void)applyNiriScrollingCameraOpenGeometry(selected);
+        } else if (const auto* placeholder = centeredEmptyWorkspacePlaceholder(m_state)) {
+            (void)applyNiriScrollingCameraOpenGeometry(*placeholder);
+        }
     }
     armOverviewRenderState(m_state);
     m_hoverSelectionAnchorValid = false;
@@ -13618,7 +13625,8 @@ void OverviewController::beginClose(CloseMode mode, std::optional<double> fromVi
             commitOverviewExitFocus(m_state.pendingExitFocus);
         if (preferGoalGeometry)
             refreshExitLayoutForFocus(m_state.pendingExitFocus);
-        const bool appliedNiriCameraExit = preferGoalGeometry && applyNiriScrollingCameraExitGeometry(m_state.pendingExitFocus);
+        const bool appliedNiriCameraExit = applyNativeLayoutCameraExitGeometry(m_state.pendingExitFocus, m_state.pendingExitWorkspace) ||
+            (preferGoalGeometry && applyNiriScrollingCameraExitGeometry(m_state.pendingExitFocus));
         if (!appliedNiriCameraExit) {
             for (auto& managed : m_state.windows) {
                 if (!managed.window || !managed.window->m_isMapped)
@@ -13644,9 +13652,11 @@ void OverviewController::beginClose(CloseMode mode, std::optional<double> fromVi
         if (debugLogsEnabled())
             debugLog("[hymission] beginClose settle start");
     } else {
-        bool appliedPlaceholderCameraExit = false;
-        if (auto* placeholder = pendingExitWorkspacePlaceholder())
-            appliedPlaceholderCameraExit = applyNiriScrollingCameraExitGeometry(*placeholder);
+        bool appliedPlaceholderCameraExit = applyNativeLayoutCameraExitGeometry(m_state.pendingExitFocus, m_state.pendingExitWorkspace);
+        if (!appliedPlaceholderCameraExit) {
+            if (auto* placeholder = pendingExitWorkspacePlaceholder())
+                appliedPlaceholderCameraExit = applyNiriScrollingCameraExitGeometry(*placeholder);
+        }
 
         if (mode != CloseMode::Abort) {
             if (m_state.pendingExitWorkspace)
@@ -14000,7 +14010,8 @@ void OverviewController::updateAnimation() {
 
         const bool preferGoalGeometry = shouldPreferGoalExitGeometry(m_state.pendingExitFocus);
         bool stable = m_state.settleHasSample;
-        if (preferGoalGeometry && applyNiriScrollingCameraExitGeometry(m_state.pendingExitFocus)) {
+        if (applyNativeLayoutCameraExitGeometry(m_state.pendingExitFocus, m_state.pendingExitWorkspace, &stable) ||
+            (preferGoalGeometry && applyNiriScrollingCameraExitGeometry(m_state.pendingExitFocus))) {
             if (m_state.settleHasSample) {
                 for (const auto& managed : m_state.windows) {
                     if (!managed.window || !managed.window->m_isMapped) {
@@ -14983,6 +14994,8 @@ void OverviewController::rebuildVisibleState(PHLWINDOW preferredSelectedWindow, 
     carryOverWorkspaceStripSnapshots(next, m_state);
     restoreOverviewRenderState();
     m_state = std::move(next);
+    if (m_state.phase == Phase::Opening)
+        (void)applyNativeLayoutCameraOpenGeometry();
     if (!m_state.relayoutActive)
         m_relayoutProgressAnimation.reset();
     armOverviewRenderState(m_state);

@@ -36,6 +36,7 @@ src = [
   'src/overview_logic.cpp',
   'src/overview_drag_logic.cpp',
   'src/overview_controller.cpp',
+  'src/overview_controller_niri_camera.cpp',
   'src/overview_controller_niri_scrolling.cpp',
   'src/overview_controller_niri_drag.cpp',
   'src/overview_controller_niri_resize.cpp',
