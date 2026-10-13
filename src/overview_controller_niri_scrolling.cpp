@@ -5137,7 +5137,8 @@ Config::Actions::ActionResult OverviewController::moveToWorkspaceActionHook(PHLW
     const auto movedWindow = window.value_or(Desktop::focusState()->window());
     const bool canRouteThroughOverviewMove = !m_overviewEditingDispatcherInProgress && workspace && !workspace->m_isSpecialWorkspace &&
         isVisible() && m_state.phase == Phase::Active && activeDirectNiriSingleWorkspaceOverview() && movedWindow && movedWindow == selectedWindow() &&
-        movedWindow->m_isMapped && hasManagedWindow(movedWindow) && isScrollingWorkspace(movedWindow->m_workspace);
+        movedWindow->m_isMapped && hasManagedWindow(movedWindow) &&
+        (!silent || isScrollingWorkspace(movedWindow->m_workspace));
     if (!canRouteThroughOverviewMove)
         return m_moveToWorkspaceActionOriginal(std::move(workspace), silent, std::move(window));
 
@@ -5529,6 +5530,16 @@ SDispatchResult OverviewController::runOverviewEditingDispatcher(const char* dis
         };
         if (!validSelectedWindow(selectedBefore))
             selectedBefore = {};
+
+        // Moving a window to another workspace is a lane-to-lane transition in
+        // the overview regardless of the workspace's layout, so animate it the
+        // same way scrolling workspaces do (along the lane stack axis).
+        if (isMoveToWorkspaceDispatcher && !isSilentMoveToWorkspaceDispatcher && m_state.phase == Phase::Active && selectedBefore && !m_workspaceTransition.active &&
+            !m_workspaceTransitionCommitScheduled && !m_applyingWorkspaceTransitionCommit && !m_overviewEditingDispatcherInProgress &&
+            activeDirectNiriSingleWorkspaceOverview()) {
+            if (const auto result = tryRunDirectNiriMoveToWorkspaceDispatcher(args, selectedBefore, isSilentMoveToWorkspaceDispatcher); result)
+                return *result;
+        }
 
         if (m_state.phase == Phase::Active && selectedBefore) {
             selectWindowInState(m_state, selectedBefore);
