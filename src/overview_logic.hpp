@@ -113,6 +113,14 @@ struct WorkspaceStripReservation {
 [[nodiscard]] bool                     scrollingLayoutGestureAxisMatches(ScrollingLayoutDirection direction, GestureAxis axis);
 [[nodiscard]] double                   scrollingLayoutMoveAmount(ScrollingLayoutDirection direction, double primaryDelta, double sensitivity);
 
+// Workspace-lane stacking axis. `workspaceAnimationStyle` is the `workspaces`
+// animation style (slide / slidevert / slidefade / slidefadevert, optionally with
+// " top|bottom|left|right"). Scrolling workspaces always stack perpendicular to
+// their scrolling axis, regardless of what Hyprland's workspace axis says.
+[[nodiscard]] GestureAxis              perpendicularGestureAxis(GestureAxis axis);
+[[nodiscard]] GestureAxis              workspaceAxisForAnimationStyle(std::string_view workspaceAnimationStyle);
+[[nodiscard]] GestureAxis              resolveWorkspaceLaneStackAxis(bool scrollingWorkspace, GestureAxis scrollingAxis, GestureAxis hyprlandWorkspaceAxis);
+
 // Direct-niri projection and workspace-lane geometry.
 [[nodiscard]] double                   niriOverviewPreviewScale(const Rect& previewArea, const Rect& baseArea, double maxPreviewScale, double minSlotScale,
                                                                 std::optional<GestureAxis> overflowAxis = std::nullopt);

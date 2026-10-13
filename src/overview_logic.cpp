@@ -11,6 +11,7 @@
 #include <cmath>
 #include <limits>
 #include <regex>
+#include <string>
 #include <string_view>
 
 namespace hymission
@@ -360,6 +361,33 @@ bool scrollingLayoutGestureAxisMatches(ScrollingLayoutDirection direction, Gestu
 double scrollingLayoutMoveAmount(ScrollingLayoutDirection direction, double primaryDelta, double sensitivity) {
     const double sign = (direction == ScrollingLayoutDirection::Left || direction == ScrollingLayoutDirection::Up) ? -1.0 : 1.0;
     return primaryDelta * sign * std::max(0.0, sensitivity);
+}
+
+GestureAxis perpendicularGestureAxis(GestureAxis axis) {
+    return axis == GestureAxis::Vertical ? GestureAxis::Horizontal : GestureAxis::Vertical;
+}
+
+GestureAxis workspaceAxisForAnimationStyle(std::string_view style) {
+    std::string lowered;
+    lowered.reserve(style.size());
+    for (const char ch : style)
+        lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+
+    if (lowered.find(" top") != std::string::npos || lowered.find(" bottom") != std::string::npos)
+        return GestureAxis::Vertical;
+    if (lowered.find(" left") != std::string::npos || lowered.find(" right") != std::string::npos)
+        return GestureAxis::Horizontal;
+    if (lowered.starts_with("slidevert") || lowered.starts_with("slidefadevert"))
+        return GestureAxis::Vertical;
+    return GestureAxis::Horizontal;
+}
+
+GestureAxis resolveWorkspaceLaneStackAxis(bool scrollingWorkspace, GestureAxis scrollingAxis, GestureAxis hyprlandWorkspaceAxis) {
+    // With only two axes, "follow the scrolling axis, then force the workspace
+    // axis to the opposite one" always lands on the perpendicular axis.
+    if (scrollingWorkspace)
+        return perpendicularGestureAxis(scrollingAxis);
+    return hyprlandWorkspaceAxis;
 }
 
 double niriOverviewPreviewScale(const Rect& previewArea, const Rect& baseArea, double maxPreviewScale, double minSlotScale, std::optional<GestureAxis> overflowAxis) {

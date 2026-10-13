@@ -8025,7 +8025,7 @@ bool OverviewController::beginOverviewWorkspaceTransition(const PHLMONITOR& moni
     target.relayoutStart = {};
 
     const auto transitionWorkspace = monitor->m_activeWorkspace ? monitor->m_activeWorkspace : source.ownerWorkspace;
-    const auto transitionAxis = niriModeAppliesToState(m_state) ? WorkspaceTransitionAxis::Vertical :
+    const auto transitionAxis = niriModeAppliesToState(m_state) ? (workspaceLanesStackVertically() ? WorkspaceTransitionAxis::Vertical : WorkspaceTransitionAxis::Horizontal) :
         (workspaceSwipeUsesVerticalAxis(transitionWorkspace) ? WorkspaceTransitionAxis::Vertical : WorkspaceTransitionAxis::Horizontal);
 
     m_workspaceTransition = {
@@ -13202,19 +13202,23 @@ void OverviewController::beginOpen(const PHLMONITOR& monitor, ScopeOverride requ
     recordWindowActivation(Desktop::focusState()->window());
     closeActiveSpecialWorkspaces();
     if (freshOpen)
-        captureNiriOverviewViewports();
+        captureNiriOverviewViewports(monitor);
     const auto preferredSelectedWindow = expandSelectedWindowEnabled() ? Desktop::focusState()->window() : PHLWINDOW{};
     State next = buildState(monitor, requestedScope, {}, false, false, preferredSelectedWindow);
     if (next.windows.empty() && next.stripEntries.empty() && !next.ownerMonitor) {
-        if (freshOpen)
+        if (freshOpen) {
             clearNiriOverviewViewports();
+            m_workspaceLaneStackAxis = GestureAxis::Vertical;
+        }
         setDamageTrackingOverride(false);
         return;
     }
 
     if (!activateHooks()) {
-        if (freshOpen)
+        if (freshOpen) {
             clearNiriOverviewViewports();
+            m_workspaceLaneStackAxis = GestureAxis::Vertical;
+        }
         setDamageTrackingOverride(false);
         return;
     }
@@ -13887,6 +13891,7 @@ void OverviewController::deactivate() {
     m_lastStripThemeColorValid = false;
     resetDirectNiriWorkspaceLanes();
     m_state = {};
+    m_workspaceLaneStackAxis = GestureAxis::Vertical;
     for (const auto& ownedMonitor : ownedMonitors) {
         if (!ownedMonitor)
             continue;
@@ -15025,17 +15030,34 @@ void OverviewController::rebuildVisibleState(PHLWINDOW preferredSelectedWindow, 
     damageOwnedMonitors();
 }
 
+std::optional<int> OverviewController::workspaceLaneStepForDirection(Direction direction) const {
+    if (workspaceLanesStackVertically()) {
+        if (direction == Direction::Up)
+            return -1;
+        if (direction == Direction::Down)
+            return 1;
+        return std::nullopt;
+    }
+
+    if (direction == Direction::Left)
+        return -1;
+    if (direction == Direction::Right)
+        return 1;
+    return std::nullopt;
+}
+
 void OverviewController::moveSelection(Direction direction) {
     if (m_state.windows.empty()) {
-        if (niriModeAppliesToState(m_state) && m_state.collectionPolicy.onlyActiveWorkspace && isScrollingWorkspace(activeLayoutWorkspace()) &&
-            (direction == Direction::Up || direction == Direction::Down) && allowsWorkspaceSwitchInOverview())
-            (void)switchOverviewWorkspaceByStep(direction == Direction::Up ? -1 : 1);
+        if (const auto laneStep = workspaceLaneStepForDirection(direction);
+            laneStep && niriModeAppliesToState(m_state) && m_state.collectionPolicy.onlyActiveWorkspace && isScrollingWorkspace(activeLayoutWorkspace()) &&
+            allowsWorkspaceSwitchInOverview())
+            (void)switchOverviewWorkspaceByStep(*laneStep);
         return;
     }
 
     if (niriModeAppliesToState(m_state) && centeredEmptyWorkspacePlaceholder(m_state)) {
-        if ((direction == Direction::Up || direction == Direction::Down) && allowsWorkspaceSwitchInOverview())
-            (void)switchOverviewWorkspaceByStep(direction == Direction::Up ? -1 : 1);
+        if (const auto laneStep = workspaceLaneStepForDirection(direction); laneStep && allowsWorkspaceSwitchInOverview())
+            (void)switchOverviewWorkspaceByStep(*laneStep);
         return;
     }
 
@@ -15211,13 +15233,13 @@ void OverviewController::moveSelection(Direction direction) {
             return;
         }
 
-        if (m_state.collectionPolicy.onlyActiveWorkspace && isScrollingWorkspace(activeLayoutWorkspace()) && (direction == Direction::Up || direction == Direction::Down) &&
-            allowsWorkspaceSwitchInOverview()) {
-            (void)switchOverviewWorkspaceByStep(direction == Direction::Up ? -1 : 1);
+        const auto laneStep = workspaceLaneStepForDirection(direction);
+        if (m_state.collectionPolicy.onlyActiveWorkspace && isScrollingWorkspace(activeLayoutWorkspace()) && laneStep && allowsWorkspaceSwitchInOverview()) {
+            (void)switchOverviewWorkspaceByStep(*laneStep);
             return;
         }
 
-        if (direction == Direction::Left || direction == Direction::Right)
+        if (!laneStep)
             return;
     }
 

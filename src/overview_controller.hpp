@@ -794,6 +794,11 @@ class OverviewController {
     [[nodiscard]] bool         applyNiriScrollingCameraOpenGeometry(const EmptyWorkspacePlaceholder& placeholder);
     void                       prepareGestureCloseExitGeometry();
     [[nodiscard]] bool         workspaceSwipeUsesVerticalAxis(const PHLWORKSPACE& workspace) const;
+    [[nodiscard]] GestureAxis  computeWorkspaceLaneStackAxis(const PHLMONITOR& openMonitor) const;
+    [[nodiscard]] GestureAxis  workspaceLaneStackAxis() const { return m_workspaceLaneStackAxis; }
+    [[nodiscard]] bool         workspaceLanesStackVertically() const { return m_workspaceLaneStackAxis == GestureAxis::Vertical; }
+    // -1/+1 when `direction` runs along the lane stacking axis, nullopt when it runs along a lane.
+    [[nodiscard]] std::optional<int> workspaceLaneStepForDirection(Direction direction) const;
     [[nodiscard]] double       workspaceSwipeViewportDistance(const PHLMONITOR& monitor, WorkspaceTransitionAxis axis) const;
     [[nodiscard]] std::optional<Rect> workspaceTransitionRectForWindow(const PHLWINDOW& window) const;
     [[nodiscard]] bool         resolveOverviewWorkspaceTargetByStep(const PHLMONITOR& monitor, int step, WORKSPACEID& workspaceId, std::string& workspaceName,
@@ -833,7 +838,7 @@ class OverviewController {
     void                                        startNiriWallpaperLayoutLayerRefresh();
     void                                        clearNiriWallpaperLayoutLayerRefresh();
     void                                        clearNiriWallpaperSnapshots();
-    void                                        captureNiriOverviewViewports();
+    void                                        captureNiriOverviewViewports(const PHLMONITOR& openMonitor = {});
     void                                        clearNiriOverviewViewports();
     [[nodiscard]] Rect                          niriOverviewViewportForWorkspace(const PHLWORKSPACE& workspace) const;
     void                                        resetDirectNiriWorkspaceLanes();
@@ -1268,6 +1273,9 @@ class OverviewController {
     std::vector<HiddenStripLayerProxy> m_hiddenStripLayerProxies;
     std::vector<NiriWallpaperSnapshot> m_niriWallpaperSnapshots;
     mutable std::vector<NiriOverviewViewportSnapshot> m_niriOverviewViewportSnapshots;
+    // Axis along which workspace lanes are stacked.  Frozen at fresh open so every
+    // rebuild and workspace transition in a session agrees on it.
+    GestureAxis              m_workspaceLaneStackAxis = GestureAxis::Vertical;
     PHLLS                    m_layerSnapshotCaptureLayer;
     bool                     m_applyingWorkspaceTransitionCommit = false;
     bool                     m_rebuildVisibleStateAfterWorkspaceTransitionCommit = false;

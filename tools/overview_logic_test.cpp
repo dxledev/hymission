@@ -314,6 +314,26 @@ int main() {
     ok &= expect(parseScrollingLayoutDirection("left") == ScrollingLayoutDirection::Left, "left scrolling direction should parse");
     ok &= expect(parseScrollingLayoutDirection("DOWN") == ScrollingLayoutDirection::Down, "down scrolling direction parsing should ignore case");
     ok &= expect(parseScrollingLayoutDirection(" up ") == ScrollingLayoutDirection::Up, "up scrolling direction parsing should ignore whitespace");
+
+    ok &= expect(workspaceAxisForAnimationStyle("slide 100%") == GestureAxis::Horizontal, "slide workspace style should be horizontal");
+    ok &= expect(workspaceAxisForAnimationStyle("slidefade 20%") == GestureAxis::Horizontal, "slidefade workspace style should be horizontal");
+    ok &= expect(workspaceAxisForAnimationStyle("SlideVert 100%") == GestureAxis::Vertical, "slidevert workspace style should be vertical");
+    ok &= expect(workspaceAxisForAnimationStyle("slidefadevert") == GestureAxis::Vertical, "slidefadevert workspace style should be vertical");
+    ok &= expect(workspaceAxisForAnimationStyle("slide top") == GestureAxis::Vertical, "slide top workspace style should be vertical");
+    ok &= expect(workspaceAxisForAnimationStyle("slidevert left") == GestureAxis::Horizontal, "explicit left suffix should be horizontal");
+    ok &= expect(workspaceAxisForAnimationStyle("") == GestureAxis::Horizontal, "empty workspace style should default to horizontal");
+    ok &= expect(resolveWorkspaceLaneStackAxis(false, GestureAxis::Horizontal, GestureAxis::Horizontal) == GestureAxis::Horizontal,
+                 "non-scrolling horizontal workspace axis should stack lanes horizontally");
+    ok &= expect(resolveWorkspaceLaneStackAxis(false, GestureAxis::Horizontal, GestureAxis::Vertical) == GestureAxis::Vertical,
+                 "non-scrolling vertical workspace axis should stack lanes vertically");
+    ok &= expect(resolveWorkspaceLaneStackAxis(true, GestureAxis::Horizontal, GestureAxis::Vertical) == GestureAxis::Vertical,
+                 "horizontal scrolling with vertical workspace axis should stack lanes vertically");
+    ok &= expect(resolveWorkspaceLaneStackAxis(true, GestureAxis::Horizontal, GestureAxis::Horizontal) == GestureAxis::Vertical,
+                 "horizontal scrolling must never stack lanes horizontally");
+    ok &= expect(resolveWorkspaceLaneStackAxis(true, GestureAxis::Vertical, GestureAxis::Vertical) == GestureAxis::Horizontal,
+                 "vertical scrolling must never stack lanes vertically");
+    ok &= expect(resolveWorkspaceLaneStackAxis(true, GestureAxis::Vertical, GestureAxis::Horizontal) == GestureAxis::Horizontal,
+                 "vertical scrolling with horizontal workspace axis should stack lanes horizontally");
     ok &= expect(parseScrollingLayoutDirection("unexpected") == ScrollingLayoutDirection::Right, "invalid scrolling direction should fall back to right");
 
     ok &= expect(axisForScrollingLayoutDirection(ScrollingLayoutDirection::Right) == GestureAxis::Horizontal, "right scrolling direction should use horizontal gestures");

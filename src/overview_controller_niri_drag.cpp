@@ -897,7 +897,8 @@ std::optional<OverviewController::NiriDragTarget> OverviewController::directNiri
         if (!usableRect(current))
             continue;
 
-        const Rect expanded = expandedLaneHitRectForDirectDrag(current, primaryAxis);
+        // Grow hit rects along the lane, never along the stacking axis, so neighbouring lanes don't overlap.
+        const Rect expanded = expandedLaneHitRectForDirectDrag(current, workspaceLanesStackVertically() ? overview_drag::Axis::Horizontal : overview_drag::Axis::Vertical);
         const bool exactHit = contains(current, pointer);
         const bool expandedPointerHit = contains(expanded, pointer);
         const double previewOverlap = rectIntersectionArea(current, draggedPreview);

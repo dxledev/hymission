@@ -1841,8 +1841,42 @@ using niri_scrolling_detail::twoColumnSwapTraceActive;
 
 // Exact-mode OverviewController member implementations are kept below.
 
-void OverviewController::captureNiriOverviewViewports() {
+GestureAxis OverviewController::computeWorkspaceLaneStackAxis(const PHLMONITOR& openMonitor) const {
+    PHLWORKSPACE referenceWorkspace;
+    if (openMonitor)
+        referenceWorkspace = openMonitor->m_activeWorkspace;
+    if (!referenceWorkspace) {
+        if (const auto monitor = Desktop::focusState()->monitor(); monitor)
+            referenceWorkspace = monitor->m_activeWorkspace;
+    }
+
+    std::string style;
+    if (const auto config = niri_scrolling_detail::workspaceAnimationConfig(); config) {
+        if (const auto values = config->pValues.lock(); values)
+            style = values->internalStyle;
+    }
+    if (style.empty() && referenceWorkspace && referenceWorkspace->m_renderOffset)
+        style = referenceWorkspace->m_renderOffset->getStyle();
+
+    const GestureAxis hyprlandAxis = workspaceAxisForAnimationStyle(style);
+    const bool        scrolling = referenceWorkspace && isScrollingWorkspace(referenceWorkspace);
+    GestureAxis       scrollingAxis = GestureAxis::Horizontal;
+    if (scrolling) {
+        std::string direction = getConfigString(m_handle, "scrolling:direction", "right");
+        const auto  workspaceRule = Config::workspaceRuleMgr()->getWorkspaceRuleFor(referenceWorkspace).value_or(Config::CWorkspaceRule{});
+        if (workspaceRule.m_layoutopts.contains("direction") && !workspaceRule.m_layoutopts.at("direction").empty())
+            direction = workspaceRule.m_layoutopts.at("direction");
+        scrollingAxis = axisForScrollingLayoutDirection(parseScrollingLayoutDirection(direction));
+    }
+
+    return resolveWorkspaceLaneStackAxis(scrolling, scrollingAxis, hyprlandAxis);
+}
+
+void OverviewController::captureNiriOverviewViewports(const PHLMONITOR& openMonitor) {
     m_niriOverviewViewportSnapshots.clear();
+    m_workspaceLaneStackAxis = computeWorkspaceLaneStackAxis(openMonitor);
+    if (debugLogsEnabled())
+        debugLog(std::string("[hymission] workspace lane stack axis=") + (m_workspaceLaneStackAxis == GestureAxis::Vertical ? "vertical" : "horizontal"));
     if (!niriModeEnabled())
         return;
 
@@ -3097,7 +3131,12 @@ PHLWORKSPACE OverviewController::centeredEmptyPlaceholderWorkspace(const State& 
     return placeholderIt == state.emptyWorkspacePlaceholders.end() ? PHLWORKSPACE{} : placeholderIt->workspace;
 }
 bool OverviewController::workspaceSwipeUsesVerticalAxis(const PHLWORKSPACE& workspace) const {
-    if (!workspace)
+    // While a lane overview is up, workspaces move along the lane stacking axis,
+    // which can deliberately differ from Hyprland's own workspace axis.
+    if (isVisible() && niriModeAppliesToState(m_state))
+        return workspaceLanesStackVertically();
+
+    if (!workspace || !workspace->m_renderOffset)
         return false;
 
     auto style = workspace->m_renderOffset->getStyle();
@@ -8111,9 +8150,10 @@ Rect OverviewController::emptyOverviewPlaceholderLocalRect(const PHLMONITOR& mon
             if (isScrollingWorkspace(workspace)) {
                 // Keep scrolling viewport sizing independent of the native focus policy.
                 if (!state.collectionPolicy.onlyActiveWorkspace) {
-                    const auto overflowAxis = axisForScrollingLayoutDirection(scrollingLayoutDirection());
+                    const auto overflowAxis = perpendicularGestureAxis(workspaceLaneStackAxis());
                     niriScale = niriOverviewPreviewScale(content, baseGlobal, config.maxPreviewScale, config.minSlotScale, overflowAxis);
-                    const double viewportScale = content.width / std::max(1.0, baseGlobal.width * 4.0);
+                    const double viewportScale = overflowAxis == GestureAxis::Horizontal ? content.width / std::max(1.0, baseGlobal.width * 4.0) :
+                                                                                           content.height / std::max(1.0, baseGlobal.height * 4.0);
                     niriScale = std::min({niriScale, niriMultiWorkspaceScale(), viewportScale});
                 }
                 niriScale *= niriLayoutScale();
@@ -9531,9 +9571,13 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
 
             const Rect content = overviewContentRectForMonitor(candidateMonitor, state);
             const double visibleScale = niriMultiWorkspaceScale();
-            const double laneHeight = std::max(1.0, content.height * visibleScale);
+            // Lanes are stacked along the workspace axis; the "long" axis runs
+            // along each lane and is where the scrolling tape (if any) lives.
+            const bool   stackVertically = workspaceLanesStackVertically();
+            const GestureAxis laneLongAxis = stackVertically ? GestureAxis::Horizontal : GestureAxis::Vertical;
+            const double laneThickness = std::max(1.0, (stackVertically ? content.height : content.width) * visibleScale);
             const double baseGap = niriWorkspaceGap();
-            const double zoomedLaneHeight = laneHeight * niriActiveWorkspaceLayoutScale;
+            const double zoomedLaneThickness = laneThickness * niriActiveWorkspaceLayoutScale;
             double gap = baseGap;
 
             // Both scrolling focus modes should render the same overview-sized
@@ -9549,28 +9593,31 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
 
             if (baseWorkspace && baseWorkspace->m_space) {
                 const Rect baseGlobal = niriOverviewViewportForWorkspace(baseWorkspace);
-                const Rect lanePreview = makeRect(content.x, content.y, content.width, laneHeight);
+                const Rect lanePreview = stackVertically ? makeRect(content.x, content.y, content.width, laneThickness) :
+                                                           makeRect(content.x, content.y, laneThickness, content.height);
                 if (baseGlobal.width > 1.0 && baseGlobal.height > 1.0) {
-                    const auto overflowAxis = axisForScrollingLayoutDirection(scrollingLayoutDirection());
-                    double centerScale = niriOverviewPreviewScale(lanePreview, baseGlobal, config.maxPreviewScale, config.minSlotScale, overflowAxis);
-                    const double viewportScale = lanePreview.width / std::max(1.0, baseGlobal.width * 4.0);
+                    double centerScale = niriOverviewPreviewScale(lanePreview, baseGlobal, config.maxPreviewScale, config.minSlotScale, laneLongAxis);
+                    const double viewportScale = stackVertically ? lanePreview.width / std::max(1.0, baseGlobal.width * 4.0) :
+                                                                    lanePreview.height / std::max(1.0, baseGlobal.height * 4.0);
                     centerScale = std::max(config.minSlotScale, std::min({centerScale, visibleScale, viewportScale}));
                     centerScale *= niriActiveWorkspaceLayoutScale;
 
                     const double fitScale =
                         std::max(config.minSlotScale, std::min(lanePreview.width / baseGlobal.width, lanePreview.height / baseGlobal.height)) *
                         niriActiveWorkspaceLayoutScale;
-                    const double centerViewportHeight = baseGlobal.height * centerScale;
-                    const double fitViewportHeight = baseGlobal.height * fitScale;
-                    gap = std::max(baseGap, baseGap + fitViewportHeight - centerViewportHeight);
+                    const double centerViewportLength = (stackVertically ? baseGlobal.height : baseGlobal.width) * centerScale;
+                    const double fitViewportLength = (stackVertically ? baseGlobal.height : baseGlobal.width) * fitScale;
+                    gap = std::max(baseGap, baseGap + fitViewportLength - centerViewportLength);
                 }
             }
-            const double laneStep = std::max(1.0, zoomedLaneHeight + gap);
-            const double centerY = content.centerY();
+            const double laneStep = std::max(1.0, zoomedLaneThickness + gap);
+            const double centerAlongStack = stackVertically ? content.centerY() : content.centerX();
             for (std::size_t index = 0; index < laneWorkspaceIds.size(); ++index) {
                 const auto workspaceId = static_cast<WORKSPACEID>(laneWorkspaceIds[index]);
                 const double rowOffset = static_cast<double>(index) - static_cast<double>(activeIndex);
-                niriWorkspaceLaneById[workspaceId] = makeRect(content.x, centerY + rowOffset * laneStep - laneHeight * 0.5, content.width, laneHeight);
+                const double laneOrigin = centerAlongStack + rowOffset * laneStep - laneThickness * 0.5;
+                niriWorkspaceLaneById[workspaceId] = stackVertically ? makeRect(content.x, laneOrigin, content.width, laneThickness) :
+                                                                       makeRect(laneOrigin, content.y, laneThickness, content.height);
             }
         }
     }

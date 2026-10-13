@@ -278,11 +278,18 @@ std::optional<std::pair<PHLMONITOR, double>> OverviewController::directNiriDndWo
 
     const Rect content = overviewContentRectForMonitor(monitor, m_state);
     const Rect global = {monitor->m_position.x + content.x, monitor->m_position.y + content.y, content.width, content.height};
-    if (global.width <= 1.0 || global.height <= 1.0 || pointer.x < global.x || pointer.x >= global.x + global.width)
+    if (global.width <= 1.0 || global.height <= 1.0)
+        return std::nullopt;
+
+    // Edge zones sit on the workspace stacking axis; the pointer must lie inside
+    // the content along the other axis.
+    const bool stackVertically = workspaceLanesStackVertically();
+    if (stackVertically ? (pointer.x < global.x || pointer.x >= global.x + global.width) : (pointer.y < global.y || pointer.y >= global.y + global.height))
         return std::nullopt;
 
     const double velocity =
-        overview_drag::edgeScrollVelocity({global.x, global.y, global.width, global.height}, pointer.x, pointer.y, overview_drag::Axis::Vertical, false,
+        overview_drag::edgeScrollVelocity({global.x, global.y, global.width, global.height}, pointer.x, pointer.y,
+                                          stackVertically ? overview_drag::Axis::Vertical : overview_drag::Axis::Horizontal, false,
                                           std::max(0.0, configFloat("plugin:hymission:niri_dnd_edge_workspace_switch_trigger", 50.0)),
                                           std::max(0.0, configFloat("plugin:hymission:niri_dnd_edge_workspace_switch_max_speed", 1500.0)));
     if (std::abs(velocity) <= 0.001)
