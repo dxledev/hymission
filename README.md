@@ -1,9 +1,9 @@
 # hymission
 
-`hymission` is a fork of [gfhdhytghd/hymission](https://github.com/gfhdhytghd/hymission) with one unified workspace-lane overview. It projects Hyprland's live scrolling geometry directly on scrolling layouts and adapts native layout targets on other layouts.
+`hymission` is a fork of [gfhdhytghd/hymission](https://github.com/gfhdhytghd/hymission). Its default and `onlycurrentworkspace` scopes use the unified workspace-lane overview, projecting Hyprland's live geometry for scrolling layouts and native targets for other layouts. The `forceall` scope restores the original multi-workspace Mission Control path across monitors.
 
 > [!IMPORTANT]
-> This is not a from-scratch plugin. The original Mission Control overview, core plugin architecture, and layout solver come from upstream Hymission. This fork unifies the overview around workspace lanes, preserving native geometry on non-scrolling layouts and using direct layout projection on scrolling layouts.
+> This is not a from-scratch plugin. The original Mission Control overview, core plugin architecture, and layout solver come from upstream Hymission. The default and `onlycurrentworkspace` scopes use the newer unified overview; `forceall` keeps the original multi-workspace Mission Control path available.
 
 > [!WARNING]
 > Hyprland plugins run inside the compositor process. Install plugins only from sources you trust.
@@ -14,7 +14,8 @@
 
 ## Work added in this fork
 
-- Implemented one overview for all Hyprland layout algorithms, using native layout targets and direct scrolling-layout projection where available.
+- Implemented the default and `onlycurrentworkspace` unified overview for all Hyprland layout algorithms, using native layout targets and direct scrolling-layout projection where available.
+- Restored the original `forceall` multi-workspace Mission Control path across monitors.
 - Added animated overview entry and exit, column-aware focus and navigation, configurable center/fit behavior, dynamic relayout, and animated workspace-to-workspace transitions.
 - Built a unified scene with visible neighboring workspace lanes, optional empty workspaces, configurable gaps and scaling, and per-workspace wallpaper viewport zoom.
 - Added cross-layout window dragging: scrolling lanes provide insertion targets and edge scrolling, native lanes swap with the nearest tiled target, and floating drops map into the lane. Cancellation or an invalid drop leaves layout geometry unchanged.
@@ -27,7 +28,7 @@
 - Monitor and special-workspace scope control with default config scope, `onlycurrentworkspace`, and `forceall`
 - Mouse, keyboard, and trackpad-driven overview interaction
 - Gesture-only `recommand` mode for two-sided `toggle` gestures
-- Unified workspace lanes across participating workspaces
+- Unified workspace lanes across participating workspaces in the default and `onlycurrentworkspace` scopes
 - Monitor-aware workspace lanes
 - Pinned-window and special-workspace-aware behavior
 
@@ -124,11 +125,11 @@ bind = SUPER, M, hymission:debug_current_layout
 
 Scope arguments:
 
-- no argument: use `show_special` to decide whether currently visible special workspaces are included
-- `onlycurrentworkspace`: exclude special workspaces
-- `forceall`: include currently visible special workspaces
+- no argument: use the unified workspace-lane overview and `show_special` to decide whether currently visible special workspaces are included
+- `onlycurrentworkspace`: use the unified overview for the current workspace and exclude special workspaces
+- `forceall`: use the original multi-workspace Mission Control path across monitors, including currently visible special workspaces
 
-All arguments open the same owner-monitor workspace-lane overview. They do not select a different overview or expand it across monitors.
+The default and `onlycurrentworkspace` scopes retain the unified lane presentation for dwindle, master, and scrolling layouts. `forceall` selects the original multi-workspace layout path. It does not restore a separate workspace strip. The `niri_mode` and `only_active_workspace` configuration keys remain accepted for compatibility and do not select these paths.
 
 ### Toggle Switch Mode
 
@@ -371,6 +372,8 @@ hl.config({
 
 ### Layout options
 
+The default and `onlycurrentworkspace` scopes use the unified workspace-lane projection. `forceall` uses the original multi-workspace Mission Control layout options below, including `layout_engine` (`grid` or `natural`).
+
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `outer_padding` | int | `32` | Legacy fallback for all four edge paddings. |
@@ -380,30 +383,30 @@ hl.config({
 | `outer_padding_left` | int | `32` | Left padding for the overview content area. |
 | `row_spacing` | int | `32` | Vertical spacing between preview rows. |
 | `column_spacing` | int | `32` | Horizontal spacing between preview columns. |
-| `min_window_length` | int | `120` | Legacy layout-solver setting; it does not affect unified workspace lanes. |
-| `min_preview_short_edge` | int | `32` | Legacy layout-solver setting; it does not affect unified workspace lanes. |
-| `small_window_boost` | float | `1.35` | Legacy layout-solver setting; it does not affect unified workspace lanes. |
-| `max_preview_scale` | float | `0.95` | Maximum preview scale used by scrolling-layout fit calculations. |
+| `min_window_length` | int | `120` | Minimum window length used by the `forceall` layout solver. |
+| `min_preview_short_edge` | int | `32` | Minimum preview short edge used by the `forceall` layout solver. |
+| `small_window_boost` | float | `1.35` | Small-window size boost used by the `forceall` layout solver. |
+| `max_preview_scale` | float | `0.95` | Maximum preview scale used by the `forceall` solver and scrolling-layout fit calculations. |
 | `workspace_overview_max_preview_scale` | float | `0.95` | Active-workspace override for the scrolling-layout preview-fit cap. |
-| `min_slot_scale` | float | `0.10` | Minimum scale for workspace-lane viewports, including native-layout lanes. |
-| `natural_scale_flex` | float | `0.22` | Legacy layout-solver setting; it does not affect unified workspace lanes. |
-| `layout_engine` | string | `grid` | Legacy compatibility setting. `grid`, `natural`, `apple`, `expose`, and `mission-control` do not select or change the unified overview projection. |
-| `layout_scale_weight` | float | `1.0` | Legacy layout-solver setting; it does not affect unified workspace lanes. |
-| `layout_space_weight` | float | `0.10` | Legacy layout-solver setting; it does not affect unified workspace lanes. |
-| `one_workspace_per_row` | bool | `0` | Legacy layout-solver setting; it does not affect workspace-lane placement. |
+| `min_slot_scale` | float | `0.10` | Minimum scale for `forceall` layout slots and workspace-lane viewports. |
+| `natural_scale_flex` | float | `0.22` | Scale flexibility used by the `forceall` natural layout solver. |
+| `layout_engine` | string | `grid` | Layout used by `forceall`; supports `grid` and `natural` (plus accepted aliases `apple`, `expose`, and `mission-control`). |
+| `layout_scale_weight` | float | `1.0` | Preview-size weight used by the `forceall` layout solver. |
+| `layout_space_weight` | float | `0.10` | Space-usage weight used by the `forceall` layout solver. |
+| `one_workspace_per_row` | bool | `0` | Keep each workspace on its own row in the `forceall` layout. |
 
 ### Behavior options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `expand_selected_window` | bool | `1` | Legacy compatibility setting; selected-window expansion does not change workspace-lane geometry. |
-| `multi_workspace_expand_selected_window` | bool | `1` | Legacy compatibility setting; selected-window expansion does not change workspace-lane geometry. |
+| `expand_selected_window` | bool | `1` | Expand the selected preview in the `forceall` Mission Control view. |
+| `multi_workspace_expand_selected_window` | bool | `1` | Expand the selected preview when `forceall` shows multiple workspaces. |
 | `overview_focus_follows_mouse` | bool | `1` | Keep the overview selection aligned with hover, and sync real focus when allowed. Hover retargeting is frame-coalesced for smoother animation, and the scene stays visually anchored when real focus crosses workspaces. |
 | `overview_center_cursor_on_hover_focus` | bool | `1` | Move the cursor to the newly focused preview center after scrolling overview recenters. This prevents a stationary edge hover from chaining through adjacent windows. |
-| `refresh_previews_on_config_reload` | bool | `1` | Repaint cached workspace-strip preview snapshots after Hyprland config reloads, so live theme changes update preview colors while overview is open. |
+| `refresh_previews_on_config_reload` | bool | `1` | Repaint cached preview snapshots after Hyprland config reloads, so live theme changes update preview colors while overview is open. |
 | `strip_theme_surface_feedback_frames` | int | `300` | Number of frames to force surface feedback (sending wl_surface.frame callbacks to background windows) after a theme or config reload, giving hidden applications time to receive the reload and repaint their colors. |
-| `multi_workspace_sort_recent_first` | bool | `1` | Legacy compatibility setting; native-layout positions remain controlled by Hyprland. |
-| `niri_mode` | bool | `1` | Accepted compatibility key. The unified overview is always active; setting this to `0` does not restore the previous overview mode. |
+| `multi_workspace_sort_recent_first` | bool | `1` | Order windows by most recent focus in the `forceall` multi-workspace view. |
+| `niri_mode` | bool | `1` | Accepted compatibility key. The default and `onlycurrentworkspace` overview paths remain unified regardless of this value. |
 | `niri_scroll_pixels_per_delta` | float | `1.0` | Multiplier for `hymission:scroll,layout` movement outside overview. A value of `1.0` maps roughly one `gestures:workspace_swipe_distance` of finger travel to one viewport of scrolling-layout movement. Native `scrollMove` ignores this option. |
 | `niri_layout_scale` | float | `1.0` | Extra scale applied to workspace lane contents across layout algorithms. Values are clamped to `0.50` - `2.0`. |
 | `niri_overview_scale` | float | `0.65` | Extra zoom factor for scrolling-layout windows in the unified overview. Lower values reveal more neighboring windows in the scroll order; values are clamped to `0.05` - `1.0`. |
@@ -417,7 +420,7 @@ hl.config({
 | `niri_mode_wallpaper_zoom_background_color` | string | `#0D0F14FF` | Background behind the scaled workspace wallpapers when `niri_mode_wallpaper_zoom = 1`. Accepts Hyprland color syntax, including `#RRGGBBAA`; the alpha channel controls whether the original desktop remains visible behind the virtual desktops. |
 | `niri_mode_wallpaper_zoom_layer_namespaces` | string | `awww-daemon` | Comma-separated ECMAScript regular expressions matched against complete layer namespaces for capture, hiding, and workspace zoom. Background and bottom layers zoom behind windows; matched top and overlay layers zoom in front. Plain names remain exact matches; use `.*` for a wildcard. |
 | `niri_mode_wallpaper_zoom_layer_refresh_ms` | int | `100` | Refresh interval for retained top and overlay layer snapshots while overview is open. Set to `0` to disable live refresh. Values below `16` are clamped to `16`. |
-| `niri_preview_disabled` | bool | `0` | Legacy compatibility option. The unified overview has no separate workspace preview strip. |
+| `niri_preview_disabled` | bool | `0` | Compatibility option; it does not disable the unified workspace-lane overview. |
 | `niri_overview_animations` | bool | `1` | Keep live Hyprland window movement available while the unified overview is open. Open/close and relayout motion use `windowsMove`; workspace switching uses `workspaces`. |
 | `niri_overview_open_close_speed_multiplier` | float | `1.5` | Speed multiplier applied to the live `windowsMove` animation for overview open and close transitions. The configured curve and style are preserved. |
 | `niri_drag_preview_alpha` | float | `0.75` | Opacity of a window while it is being dragged in the unified overview. |
@@ -435,9 +438,9 @@ hl.config({
 | `switch_toggle_auto_next` | bool | `1` | Toggle switch mode only. When enabled, the first switch-mode `toggle` both opens overview and advances to the next target. |
 | `switch_release_key` | string | `Super_L` | Toggle switch mode only. Release of this key commits the current selection and closes the switch session. Supports keysym names such as `Alt_L` / `Super_L` and `code:N`, and release tracking is resilient to missing per-window release events. |
 | `gesture_invert_vertical` | bool | `0` | Invert the plugin-managed vertical overview gesture direction. |
-| `only_active_workspace` | bool | `1` | Accepted compatibility key. It does not select the previous active-workspace overview; the unified overview manages workspace lanes. |
-| `only_active_monitor` | bool | `0` | Accepted compatibility key. The unified overview uses its owner monitor. |
-| `show_special` | bool | `0` | Include currently visible special workspaces on the owner monitor in the default scope. |
+| `only_active_workspace` | bool | `1` | Accepted compatibility key; it does not change the default, `onlycurrentworkspace`, or `forceall` scope routing. |
+| `only_active_monitor` | bool | `0` | Accepted compatibility key; the default scope uses its owner monitor. `forceall` spans monitors. |
+| `show_special` | bool | `0` | Include currently visible special workspaces in the default scope. `forceall` includes visible special workspaces that remain open through collection. |
 | `workspace_change_keeps_overview` | bool | `1` | Keep overview open when switching workspace lanes. |
 | `damage_tracking_override` | bool | `1` | Temporarily set Hyprland `debug:damage_tracking` to `0` while overview is visible and restore the previous value on close. This can reduce flicker on NVIDIA/multi-monitor setups. |
 | `close_special_workspaces_on_open` | bool | `1` | Close any currently visible special workspaces before opening overview. |
@@ -452,9 +455,9 @@ Behavior notes:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `hide_layers_when_overview` | bool | `1` | Enable configured layer namespace hiding in the workspace-lane overview. |
-| `hide_namespace_overview_niri_scrolling` | string | `chromack,wardnc,wardbnc,dashboard,rofi` | Comma-separated ECMAScript patterns for layer surfaces hidden or proxied with workspace lanes. The key name is retained for compatibility. |
-| `hide_namespaces_overview` | string | `hypr-dock,waybar,chromack,wardnc,wardbnc,dashboard,rofi` | Additional layer namespace patterns used for empty owner-workspace lane proxies. |
+| `hide_layers_when_overview` | bool | `1` | Enable configured layer namespace hiding in the active overview path. |
+| `hide_namespace_overview_niri_scrolling` | string | `chromack,wardnc,wardbnc,dashboard,rofi` | Comma-separated ECMAScript patterns for layer surfaces hidden or proxied by the unified workspace-lane overview on all layouts. The key name is retained for compatibility. |
+| `hide_namespaces_overview` | string | `hypr-dock,waybar,chromack,wardnc,wardbnc,dashboard,rofi` | Layer namespace patterns used by `forceall` and for empty owner-workspace lane proxies. |
 | `hide_bar_animation` | bool | `1` | Enable fade and blur rendering for captured layer proxies while their live surfaces are hidden. |
 | `hide_bar_animation_move_multiplier` | float | `0.8` | Movement multiplier for hidden-layer proxy animations, clamped to `0.0` - `2.0`. |
 | `hide_bar_animation_scale_divisor` | float | `1.1` | Scale divisor for hidden-layer proxy animations, with a minimum of `1.0`. |
@@ -463,11 +466,11 @@ Behavior notes:
 
 ### Legacy workspace-strip settings
 
-The keys `workspace_strip_anchor`, `workspace_strip_empty_mode`, `workspace_strip_thickness`, `workspace_strip_gap`, `hide_bar_when_strip`, and `bar_single_mission_control` remain accepted for compatibility. The unified overview has no separate workspace strip and does not rename workspace entries for bars, so these settings do not select or restore an older overview presentation.
+The keys `workspace_strip_anchor`, `workspace_strip_empty_mode`, `workspace_strip_thickness`, `workspace_strip_gap`, and `hide_bar_when_strip` remain accepted for compatibility. The unified overview has no separate workspace strip, and `forceall` does not restore one.
 
 The unified overview shows workspace lanes. Empty lanes follow the configured empty-workspace policy.
 
-All Hyprland layouts share the same owner-monitor workspace-lane overview. Scrolling layouts project Hyprland's live column and tile geometry; their resize, move, swap, and focus actions remain owned by Hyprland. Other layouts map native targets into the same lane geometry and rebuild after normal Hyprland dispatches. `focus_fit_method = 0` centers the focused scrolling column; `focus_fit_method = 1` fits it inside the viewport. Both `hymission:scroll,layout` and Hyprland's official `scrollMove` / Lua `scroll_move` can scroll a scrolling layout while overview is open. The preview-fit caps apply on the scrolling-layout fit path; native-layout lanes use their lane and monitor fit.
+In the default and `onlycurrentworkspace` scopes, all Hyprland layouts share the owner-monitor workspace-lane overview. Scrolling layouts project Hyprland's live column and tile geometry; their resize, move, swap, and focus actions remain owned by Hyprland. Other layouts map native targets into the same lane geometry and rebuild after normal Hyprland dispatches. `focus_fit_method = 0` centers the focused scrolling column; `focus_fit_method = 1` fits it inside the viewport. Both `hymission:scroll,layout` and Hyprland's official `scrollMove` / Lua `scroll_move` can scroll a scrolling layout while overview is open. The preview-fit caps apply on the scrolling-layout fit path; native-layout lanes use their lane and monitor fit.
 
 Left-dragging a window in this mode uses Hyprland's `binds:drag_threshold`; the translucent preview follows the grabbed point without detaching the tiled window or reflowing its source column. Scrolling-layout lanes show insertion hints for a new column or a position inside an existing column. Native-layout lanes choose the nearest tiled target as a swap target, while floating windows use the mapped drop position. Releasing outside a valid lane or cancelling the drag leaves the layout unchanged. Holding the pointer at a scrolling lane's edge moves its preview camera after the configured delay.
 
@@ -475,7 +478,7 @@ An existing Wayland drag-and-drop operation, such as dragging files from a file 
 
 ### Waybar workspace names
 
-The unified overview leaves Hyprland workspace names unchanged for Waybar. `bar_single_mission_control` remains an accepted compatibility key but does not create a single `Mission Control` entry.
+The default and `onlycurrentworkspace` scopes leave Hyprland workspace names unchanged for Waybar. In `forceall`, `bar_single_mission_control = 1` exposes one `Mission Control` entry instead of the individual workspace names.
 
 ### Debug options
 

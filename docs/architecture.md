@@ -10,15 +10,18 @@ headers and comments beside the difficult orchestration functions.
 - Hyprland owns real windows, workspaces, layouts, focus, and scrolling columns.
 - Hymission owns the temporary overview scene, preview projection, animation,
   selection, and input routing.
-- Native layout targets are projected into workspace lanes.
-- Scrolling-layout geometry is projected directly from Hyprland's live algorithm.
+- In the default and `onlycurrentworkspace` scopes, native layout targets are projected into workspace lanes.
+- In those unified scopes, scrolling-layout geometry is projected directly from Hyprland's live algorithm.
+- Default and `onlycurrentworkspace` scopes use the unified lane overview; `forceall` restores the original multi-workspace Mission Control path across monitors.
 - Pure policy and geometry remain independent of Hyprland so they can be tested.
+
+The `forceall` path uses the legacy grid or natural layout configuration. It does not restore a separate workspace strip. `niri_mode` and `only_active_workspace` remain accepted compatibility keys and do not choose between these scope paths.
 
 ## Modules
 
 ### Layout and pure logic
 
-- `src/mission_layout.{hpp,cpp}` retains the standalone grid and natural layout solvers used by the layout demo and tests.
+- `src/mission_layout.{hpp,cpp}` provides the `forceall` grid and natural solvers and the standalone layout demo/tests.
 - `src/overview_logic.{hpp,cpp}` contains hit testing, navigation, gesture
   decisions, lane projection, strip geometry, and scrolling-layout scale helpers.
 - `src/overview_drag_logic.{hpp,cpp}` computes scrolling-layout insertion targets
@@ -47,8 +50,9 @@ controller. Files under `tools/` exercise compositor-independent logic.
 
 1. A dispatcher or gesture calls the controller.
 2. `buildState()` collects compositor objects and constructs a renderable scene.
-3. Each workspace is projected into a lane; normal layouts use native targets
-   and scrolling layouts use Hyprland's live scrolling geometry.
+3. The default and `onlycurrentworkspace` scopes project workspaces into lanes;
+   normal layouts use native targets and scrolling layouts use Hyprland's live
+   scrolling geometry. `forceall` uses the original multi-workspace layout path.
 4. render hooks transform live surfaces without resizing the client.
 5. input operates on the projected rectangles.
 6. edits are sent back through Hyprland, then the scene is rebuilt or retargeted

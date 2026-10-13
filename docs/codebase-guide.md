@@ -8,7 +8,7 @@ Older documents in `docs/`, `devlog/`, `.hermes/`, and the repository root remai
 
 Hymission is a compositor plugin that adds a Mission Control-style overview to Hyprland. It does not create a separate shell or move applications into fake containers. It intercepts Hyprland's rendering and input, computes preview geometry, and projects live compositor surfaces into that geometry.
 
-This repository is a fork and adaptation of the public Hymission project. Its original overview architecture, GNOME-inspired layout solver, render-hook strategy, and interaction model come from that lineage. The current overview presents participating workspaces as lanes for every Hyprland layout algorithm. Scrolling layouts use direct column/tile projection; other layouts project native layout targets into the same lane geometry. The `niri_mode` and `only_active_workspace` keys remain accepted for configuration compatibility and do not select the previous overview modes.
+This repository is a fork and adaptation of the public Hymission project. Its original overview architecture, GNOME-inspired layout solver, render-hook strategy, and interaction model come from that lineage. The default and `onlycurrentworkspace` scopes use the current overview, presenting workspaces as lanes for every Hyprland layout algorithm: scrolling layouts use direct column/tile projection, while other layouts project native targets into lane geometry. `forceall` restores the original multi-workspace Mission Control path across monitors. The `niri_mode` and `only_active_workspace` keys remain accepted for configuration compatibility and do not choose between these scope paths.
 
 The unified implementation includes workspace lanes, empty-workspace viewports, transitions, layout editing, focus reconciliation, window drag, mouse resize, Wayland file drag-and-drop, wallpaper zoom, and render/animation edge-case fixes.
 
@@ -116,11 +116,11 @@ The sessions stay separate because opening the overview, moving a workspace conv
 
 ### Collection and layout
 
-`loadCollectionPolicy()` applies the default or requested monitor/special-workspace scope, while all scope arguments still use the same owner-monitor lane overview. `only_active_monitor` remains an accepted compatibility setting and does not select another overview mode. `buildState()` resolves workspaces, candidates, fullscreen backups, ordering, and selection.
+`loadCollectionPolicy()` routes the default and `onlycurrentworkspace` scopes to the unified workspace-lane overview. `forceall` restores the original multi-workspace Mission Control collection across monitors and includes visible special workspaces that remain open through collection. `only_active_monitor` remains an accepted compatibility key; the default scope uses its owner monitor, while `forceall` spans monitors. `buildState()` resolves workspaces, candidates, fullscreen backups, ordering, and selection for the selected path.
 
 The unified overview projects Hyprland workspace targets into lanes. The direct-scrolling path reads `CScrollingAlgorithm` geometry; other layouts map native targets into their workspace lane.
 
-`MissionControlLayout::compute()` remains as a legacy standalone layout entrypoint:
+`MissionControlLayout::compute()` powers the `forceall` multi-workspace layout and remains available to the layout demo and tests:
 
 1. validate and prepare natural window rectangles;
 2. select grid or natural layout;
@@ -128,7 +128,7 @@ The unified overview projects Hyprland workspace targets into lanes. The direct-
 4. produce `WindowSlot` targets and scales;
 5. preserve caller indices.
 
-The legacy grid solver is GNOME-style row layout: try candidate row counts, score size/space usage, then center the winning rows. The natural solver starts near real screen positions, resolves overlap, spreads sparse arrangements, relieves corner voids, and scores multiple profiles. These solvers remain useful in the layout demo and tests; they do not select the unified overview's projection.
+The grid solver uses GNOME-style rows: it tries candidate row counts, scores size and space usage, then centers the winning rows. The natural solver starts near real screen positions, resolves overlap, spreads sparse arrangements, relieves corner voids, and scores multiple profiles. `layout_engine` selects `grid` or `natural` for `forceall`; `multi_workspace_sort_recent_first` orders windows by recent focus in that path. The unified default and `onlycurrentworkspace` paths continue to use lane projection.
 
 ### Rendering
 
@@ -143,13 +143,13 @@ Two custom pass elements keep overview-only drawing at predictable render stages
 
 Mouse/touch use preview hit boxes; keyboard navigation uses pure directional-neighbor logic. Selection may synchronize real focus, but remains independent so delayed focus events cannot corrupt the scene.
 
-The unified overview uses workspace lanes in one scene and does not show a separate workspace strip.
+The default and `onlycurrentworkspace` overview use workspace lanes in one scene and do not show a separate workspace strip. `forceall` restores the original multi-workspace layout path without restoring a separate strip.
 
 ## 7. Workspace-lane projection
 
 ### Activation and ownership
 
-Every participating workspace is represented by a lane. The projection path follows the workspace's actual Hyprland layout algorithm, independent of the legacy `niri_mode` and `only_active_workspace` values. Empty lanes keep a backing placeholder as the workspace surface.
+In the default and `onlycurrentworkspace` scopes, every participating workspace is represented by a lane. The projection path follows the workspace's actual Hyprland layout algorithm, independent of the compatibility keys `niri_mode` and `only_active_workspace`. Empty lanes keep a backing placeholder as the workspace surface. `forceall` routes to the original multi-workspace Mission Control layout instead.
 
 ### Native-layout lane projection
 
@@ -349,7 +349,7 @@ This covers every tracked file. Generated `build/`, `build-cmake/`, and `build-m
 | --- | --- |
 | `src/main.cpp` | Plugin ABI entrypoint. Registers all options, dispatchers, Lua helpers, defaults, and the controller. |
 | `src/mission_layout.hpp` | Pure layout contract: rectangles, inputs, slots, engines, and configuration. |
-| `src/mission_layout.cpp` | Standalone grid and natural solvers used by the layout demo and tests. |
+| `src/mission_layout.cpp` | Grid and natural solvers used by `forceall`, the layout demo, and tests. |
 | `src/overview_logic.hpp` | Pure policy/geometry declarations for navigation, gestures, transitions, scrolling axes, strip layout, and empty lanes. |
 | `src/overview_logic.cpp` | Implements those decisions without Hyprland rendering dependencies. |
 | `src/overview_drag_logic.hpp` | Pure axis-normalized column/tile insertion and edge-scroll API. |
@@ -405,7 +405,7 @@ This covers every tracked file. Generated `build/`, `build-cmake/`, and `build-m
 | --- | --- |
 | Load failure or missing option | `src/main.cpp`, then build files |
 | Workspace-lane projection | `buildState()` in `src/overview_controller_niri_scrolling.cpp` and native target mapping |
-| Standalone grid/natural solver | `src/mission_layout.cpp`, `tools/layout_demo.cpp` |
+| `forceall` grid/natural layout | `src/mission_layout.cpp`, `tools/layout_demo.cpp` |
 | Wrong mouse/keyboard target | `src/overview_logic.cpp`, input handlers |
 | Surface/border/shadow/blur/clipping | `windowTransformFor()` and render/surface hooks |
 | Open/close/cleanup | `beginOpen()`, `beginClose()`, `updateAnimation()`, `deactivate()` |

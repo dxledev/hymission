@@ -6697,7 +6697,7 @@ OverviewController::CollectionPolicy OverviewController::loadCollectionPolicy(Sc
     if (requestedScope == ScopeOverride::ForceAll) {
         return {
             .requestedScope = requestedScope,
-            .onlyActiveWorkspace = true,
+            .onlyActiveWorkspace = false,
             .onlyActiveMonitor = false,
             .includeSpecial = true,
         };
