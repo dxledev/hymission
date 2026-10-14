@@ -91,6 +91,11 @@ struct WorkspaceStripReservation {
                                                                      std::optional<std::size_t> focused);
 [[nodiscard]] Rect                       lerpRect(const Rect& from, const Rect& to, double t);
 [[nodiscard]] Rect                       transformLiveOverviewRect(const Rect& liveRect, const Rect& desktopViewport, const Rect& overviewViewport);
+[[nodiscard]] std::optional<Rect>        resolveNativeLayoutTransitionGoal(const Rect& goal, bool transitionTarget,
+                                                                            const std::optional<Rect>& retainedGoal = std::nullopt);
+[[nodiscard]] std::optional<Rect>        workspaceTransitionWindowRect(std::optional<Rect> source, std::optional<Rect> target,
+                                                                        GestureAxis axis, double distance, double delta, int step,
+                                                                        bool pinned = false);
 [[nodiscard]] int                        scaledOverviewRounding(double logicalRounding, double monitorScale, double previewScale);
 [[nodiscard]] int                        overviewBorderOuterRounding(int rounding, float roundingPower, int borderSize, double monitorScale);
 [[nodiscard]] int64_t                    authoritativeOverviewWorkspaceId(bool transitionActive, int64_t transitionTargetId, int64_t committedWorkspaceId);

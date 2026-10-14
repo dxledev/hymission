@@ -220,6 +220,58 @@ Rect transformLiveOverviewRect(const Rect& liveRect, const Rect& desktopViewport
     };
 }
 
+std::optional<Rect> resolveNativeLayoutTransitionGoal(const Rect& goal, bool transitionTarget, const std::optional<Rect>& retainedGoal) {
+    if (!std::isfinite(goal.x) || !std::isfinite(goal.y) || !std::isfinite(goal.width) || !std::isfinite(goal.height) || goal.width <= 1.0 || goal.height <= 1.0)
+        return std::nullopt;
+
+    if (transitionTarget)
+        return goal;
+
+    if (!retainedGoal)
+        return std::nullopt;
+
+    constexpr double tolerance = 0.5;
+    if (!(std::abs(goal.x - retainedGoal->x) <= tolerance) || !(std::abs(goal.y - retainedGoal->y) <= tolerance) ||
+        !(std::abs(goal.width - retainedGoal->width) <= tolerance) || !(std::abs(goal.height - retainedGoal->height) <= tolerance))
+        return std::nullopt;
+
+    return goal;
+}
+
+std::optional<Rect> workspaceTransitionWindowRect(std::optional<Rect> source, std::optional<Rect> target, GestureAxis axis, double distance,
+                                                  double delta, int step, bool pinned) {
+    if (!source && !target)
+        return std::nullopt;
+
+    const auto endpoint = [&]() -> std::optional<Rect> { return target ? target : source; };
+    if (!std::isfinite(distance) || distance <= 0.0 || !std::isfinite(delta))
+        return endpoint();
+
+    const double clampedDelta = std::clamp(delta, -distance, distance);
+    const int targetDirection = clampedDelta < -0.0001 ? -1 : clampedDelta > 0.0001 ? 1 : (step < 0 ? -1 : 1);
+    const double progress = clampUnit(std::abs(clampedDelta) / distance);
+
+    if (pinned) {
+        if (source && target)
+            return lerpRect(*source, *target, progress);
+
+        return endpoint();
+    }
+
+    const double sourceOffset = -clampedDelta;
+    const double targetOffset = sourceOffset + static_cast<double>(targetDirection) * distance;
+    const auto translated = [&](const Rect& rect, double offset) {
+        return axis == GestureAxis::Vertical ? Rect{rect.x, rect.y + offset, rect.width, rect.height} :
+                                               Rect{rect.x + offset, rect.y, rect.width, rect.height};
+    };
+
+    if (source && target)
+        return lerpRect(translated(*source, sourceOffset), translated(*target, targetOffset), progress);
+    if (source)
+        return translated(*source, sourceOffset);
+    return translated(*target, targetOffset);
+}
+
 int64_t authoritativeOverviewWorkspaceId(bool transitionActive, int64_t transitionTargetId, int64_t committedWorkspaceId) {
     if (transitionActive)
         return transitionTargetId;

@@ -5477,6 +5477,12 @@ std::optional<SDispatchResult> OverviewController::tryRunDirectNiriMoveToWorkspa
             << " target=" << debugWorkspaceLabel(targetWorkspace)
             << " sourceWindows=" << m_workspaceTransition.sourceState.windows.size()
             << " targetWindows=" << m_workspaceTransition.targetState.windows.size();
+        if (const auto* source = managedWindowFor(m_workspaceTransition.sourceState, movedWindow, true))
+            out << " sourcePreview=" << rectToString(source->targetGlobal);
+        if (targetManaged != m_workspaceTransition.targetState.windows.end()) {
+            out << " targetPreview=" << rectToString(targetManaged->targetGlobal)
+                << " nativeTargetGoal=" << (targetManaged->nativeLayoutTransitionGoal ? rectToString(*targetManaged->nativeLayoutTransitionGoal) : "none");
+        }
         debugLog(out.str());
     }
 
@@ -7398,6 +7404,24 @@ void OverviewController::refreshWorkspaceLayoutSnapshot(const PHLWORKSPACE& work
     }
 }
 
+std::optional<Rect> OverviewController::nativeLayoutTransitionGoalForWindow(const PHLWINDOW& window, bool transitionTarget) const {
+    if (!window || !window->m_isMapped || window->m_pinned || isFloatingOverviewWindow(window) || !window->m_workspace ||
+        isScrollingWorkspace(window->m_workspace) || suppressWorkspaceChangeForDirectNiriMouseResize(window->m_workspace))
+        return std::nullopt;
+
+    const auto target = window->layoutTarget();
+    const auto& positionAnimation = hyprland_compat::windowPositionAnimation(window);
+    const auto& sizeAnimation = hyprland_compat::windowSizeAnimation(window);
+    if (!target || target->floating() || !positionAnimation || !sizeAnimation)
+        return std::nullopt;
+
+    const Vector2D position = positionAnimation->goal();
+    const Vector2D size = sizeAnimation->goal();
+    const auto* previous = managedWindowFor(m_state, window, true);
+    const auto retainedGoal = previous ? previous->nativeLayoutTransitionGoal : std::nullopt;
+    return resolveNativeLayoutTransitionGoal({position.x, position.y, size.x, size.y}, transitionTarget, retainedGoal);
+}
+
 std::optional<Rect> OverviewController::livePreviewRectForManagedWindow(const ManagedWindow& window) const {
     if (!window.window || !window.window->m_isMapped || !window.targetMonitor || !usesDirectNiriScrollingOverview(m_state))
         return std::nullopt;
@@ -7425,7 +7449,13 @@ std::optional<Rect> OverviewController::livePreviewRectForManagedWindow(const Ma
         return std::nullopt;
 
     const Rect desktopViewport = niriOverviewViewportForWorkspace(workspace);
-    const Rect liveRect = adjacentTiledResize ? stateSnapshotGlobalRectForWindow(window.window) : renderGlobalRectForWindow(window.window);
+    Rect liveRect = adjacentTiledResize ? stateSnapshotGlobalRectForWindow(window.window) : renderGlobalRectForWindow(window.window);
+    if (window.nativeLayoutTransitionGoal) {
+        // The workspace conveyor can finish before Hyprland's window animation.
+        // Keep its endpoint until a later layout edit changes the native goal.
+        if (const auto goal = nativeLayoutTransitionGoalForWindow(window.window))
+            liveRect = *goal;
+    }
     if (desktopViewport.width <= 1.0 || desktopViewport.height <= 1.0 || liveRect.width <= 0.0 || liveRect.height <= 0.0)
         return std::nullopt;
 
@@ -9100,7 +9130,7 @@ void OverviewController::buildWorkspaceStripEntries(State& state) const {
 // smaller helpers.
 OverviewController::State OverviewController::buildState(const PHLMONITOR& monitor, ScopeOverride requestedScope, const std::vector<WorkspaceOverride>& workspaceOverrides,
                                                          bool keepEmptyParticipatingMonitors, bool suppressWorkspaceStrip,
-                                                         PHLWINDOW preferredSelectedWindow, bool refreshLayoutSnapshots) const {
+                                                         PHLWINDOW preferredSelectedWindow, bool refreshLayoutSnapshots, bool nativeLayoutTransitionTarget) const {
     State state;
     if (!monitor)
         return state;
@@ -10126,6 +10156,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
         Rect directNiriSourceGlobal = naturalGlobal;
         std::optional<WindowSlot> directNiriSlot;
         bool directNiriFloatingOverlay = false;
+        std::optional<Rect> nativeLayoutTransitionGoal;
 
         Rect floatingRenderGlobal = allowDirectNiriOverviewLayout && isFloatingOverviewWindow(window) ?
             directNiriFloatingSnapshotGlobalRectForWindow(window, useGoalGeometry) : renderGlobalRectForWindow(window, useGoalGeometry);
@@ -10140,8 +10171,9 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
         Rect resolvedFloatingSourceGlobal = floatingSourceGlobal;
         const auto layoutWorkspace = window->m_pinned ? focusedStripWorkspaceForMonitor(targetMonitor) : window->m_workspace;
         if (allowDirectNiriOverviewLayout && layoutWorkspace && !isScrollingWorkspace(layoutWorkspace)) {
+            nativeLayoutTransitionGoal = nativeLayoutTransitionGoalForWindow(window, nativeLayoutTransitionTarget);
             const Rect sourceGlobal = isFloatingOverviewWindow(window) || window->m_pinned ? floatingSourceGlobal :
-                scrollingOverviewSourceGlobalRectForWindow(window, naturalGlobal);
+                nativeLayoutTransitionGoal.value_or(scrollingOverviewSourceGlobalRectForWindow(window, naturalGlobal));
             directNiriSlot = niriNativeLayoutOverviewSlotForWindow(window, targetMonitor, sourceGlobal, windowIndex, resolvedFloatingSourceGlobal);
             if (directNiriSlot) {
                 directNiriSourceGlobal = resolvedFloatingSourceGlobal;
@@ -10171,6 +10203,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
             .isFloating = window->m_isFloating,
             .isPinned = window->m_pinned,
             .isNiriFloatingOverlay = directNiriFloatingOverlay,
+            .nativeLayoutTransitionGoal = directNiriSlot ? nativeLayoutTransitionGoal : std::nullopt,
         });
 
         if (directNiriSlot) {
@@ -10191,6 +10224,7 @@ OverviewController::State OverviewController::buildState(const PHLMONITOR& monit
                     << " floating=" << (window->m_isFloating ? 1 : 0)
                     << " source=" << rectToString(directNiriSourceGlobal)
                     << " target=" << rectToString(managed.targetGlobal)
+                    << " nativeTransitionGoal=" << (managed.nativeLayoutTransitionGoal ? rectToString(*managed.nativeLayoutTransitionGoal) : "none")
                     << " scale=" << directNiriSlot->scale;
                 debugLog(out.str());
             }

@@ -223,6 +223,7 @@ class OverviewController {
         bool         isFloating = false;
         bool         isPinned = false;
         bool         isNiriFloatingOverlay = false;
+        std::optional<Rect> nativeLayoutTransitionGoal;
     };
 
     // Navigation thumbnail. Snapshot is the captured workspace framebuffer;
@@ -778,6 +779,7 @@ class OverviewController {
     [[nodiscard]] Rect         goalGlobalRectForWindow(const PHLWINDOW& window) const;
     [[nodiscard]] std::optional<Rect> livePreviewRectForManagedWindow(const ManagedWindow& window) const;
     [[nodiscard]] bool         shouldUseGoalGeometryForStateSnapshot(const PHLWINDOW& window) const;
+    [[nodiscard]] std::optional<Rect> nativeLayoutTransitionGoalForWindow(const PHLWINDOW& window, bool transitionTarget = false) const;
     [[nodiscard]] bool         inactiveDirectNiriFloatingOverlay(const ManagedWindow& managed) const;
     [[nodiscard]] EmptyWorkspacePlaceholder* directNiriWorkspaceViewportPlaceholder(WORKSPACEID workspaceId, const PHLMONITOR& monitor);
     void                       stabilizeInactiveNiriFloatingOpenGeometry(WORKSPACEID selectedWorkspaceId, const Rect& selectedStart, const Rect& selectedTarget);
@@ -1098,7 +1100,7 @@ class OverviewController {
     bool selectWindowInState(State& state, const PHLWINDOW& window) const;
     State  buildState(const PHLMONITOR& monitor, ScopeOverride requestedScope, const std::vector<WorkspaceOverride>& workspaceOverrides = {},
                       bool keepEmptyParticipatingMonitors = false, bool suppressWorkspaceStrip = false, PHLWINDOW preferredSelectedWindow = {},
-                      bool refreshLayoutSnapshots = true) const;
+                      bool refreshLayoutSnapshots = true, bool nativeLayoutTransitionTarget = false) const;
     State  m_state;
     HANDLE m_handle = nullptr;
 

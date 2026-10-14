@@ -7982,7 +7982,7 @@ bool OverviewController::beginOverviewWorkspaceTransition(const PHLMONITOR& moni
         debugLog(out.str());
     }
 
-    State      target = buildState(anchorMonitor, m_state.collectionPolicy.requestedScope, overrides, true, false, targetFocus);
+    State      target = buildState(anchorMonitor, m_state.collectionPolicy.requestedScope, overrides, true, false, targetFocus, true, true);
     if (target.participatingMonitors.empty())
         return false;
 
@@ -8140,7 +8140,7 @@ bool OverviewController::rebuildTimedNiriWorkspaceTransitionTarget(const PHLWIND
         .workspaceName = targetWorkspace->m_name,
         .syntheticEmpty = false,
     }};
-    State target = buildState(anchorMonitor, m_state.collectionPolicy.requestedScope, overrides, true, false, preferredTargetFocus);
+    State target = buildState(anchorMonitor, m_state.collectionPolicy.requestedScope, overrides, true, false, preferredTargetFocus, true, true);
     if (target.participatingMonitors.empty())
         return false;
 
@@ -11792,41 +11792,11 @@ std::optional<Rect> OverviewController::workspaceTransitionRectForWindow(const P
     if (!sourceManaged && !targetManaged)
         return std::nullopt;
 
-    const double clampedDelta = std::clamp(m_workspaceTransition.delta, -m_workspaceTransition.distance, m_workspaceTransition.distance);
-    const double sourceOffset = -clampedDelta;
-    const int    targetDirection = clampedDelta < -0.0001 ? -1 : clampedDelta > 0.0001 ? 1 : (m_workspaceTransition.step < 0 ? -1 : 1);
-    const double targetOffset = sourceOffset + static_cast<double>(targetDirection) * m_workspaceTransition.distance;
-    const double t = m_workspaceTransition.distance > 0.0 ? clampUnit(std::abs(clampedDelta) / m_workspaceTransition.distance) : 1.0;
-
-    if ((sourceManaged && sourceManaged->isPinned) || (targetManaged && targetManaged->isPinned)) {
-        if (sourceManaged && targetManaged)
-            return lerpRect(sourceManaged->targetGlobal, targetManaged->targetGlobal, t);
-
-        return sourceManaged ? sourceManaged->targetGlobal : targetManaged->targetGlobal;
-    }
-
-    double sourceDx = 0.0;
-    double sourceDy = 0.0;
-    double targetDx = 0.0;
-    double targetDy = 0.0;
-    if (m_workspaceTransition.axis == WorkspaceTransitionAxis::Vertical) {
-        sourceDy = sourceOffset;
-        targetDy = targetOffset;
-    } else {
-        sourceDx = sourceOffset;
-        targetDx = targetOffset;
-    }
-
-    if (sourceManaged && targetManaged) {
-        const Rect sourceRect = translateRect(sourceManaged->targetGlobal, sourceDx, sourceDy);
-        const Rect targetRect = translateRect(targetManaged->targetGlobal, targetDx, targetDy);
-        return lerpRect(sourceRect, targetRect, t);
-    }
-
-    if (sourceManaged)
-        return translateRect(sourceManaged->targetGlobal, sourceDx, sourceDy);
-
-    return translateRect(targetManaged->targetGlobal, targetDx, targetDy);
+    const std::optional<Rect> source = sourceManaged ? std::optional<Rect>{sourceManaged->targetGlobal} : std::nullopt;
+    const std::optional<Rect> target = targetManaged ? std::optional<Rect>{targetManaged->targetGlobal} : std::nullopt;
+    const bool pinned = (sourceManaged && sourceManaged->isPinned) || (targetManaged && targetManaged->isPinned);
+    const auto axis = m_workspaceTransition.axis == WorkspaceTransitionAxis::Vertical ? GestureAxis::Vertical : GestureAxis::Horizontal;
+    return workspaceTransitionWindowRect(source, target, axis, m_workspaceTransition.distance, m_workspaceTransition.delta, m_workspaceTransition.step, pinned);
 }
 
 Rect OverviewController::stablePreviewOrderRect(const ManagedWindow& window) const {

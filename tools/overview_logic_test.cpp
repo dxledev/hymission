@@ -1,9 +1,11 @@
 // Regression tests for overview input policy, gestures, strip geometry, and
 // direct-niri projection helpers.
 
+#include <algorithm>
 #include <cstdlib>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -20,6 +22,8 @@ using hymission::ScrollingLayoutDirection;
 using hymission::WorkspaceStripAnchor;
 using hymission::WorkspaceStripEmptyMode;
 using hymission::WorkspaceStripReservation;
+using hymission::resolveNativeLayoutTransitionGoal;
+using hymission::workspaceTransitionWindowRect;
 
 bool expect(bool condition, const char* message) {
     if (condition)
@@ -37,6 +41,12 @@ bool expectRect(const Rect& actual, const Rect& expected, const char* message) {
     return expect(closeEnough(actual.x, expected.x) && closeEnough(actual.y, expected.y) && closeEnough(actual.width, expected.width) &&
                       closeEnough(actual.height, expected.height),
                   message);
+}
+
+bool expectOptionalRect(const std::optional<Rect>& actual, const Rect& expected, const char* message) {
+    if (!actual)
+        return expect(false, message);
+    return expectRect(*actual, expected, message);
 }
 
 bool expectReservation(const WorkspaceStripReservation& actual, const WorkspaceStripReservation& expected, const char* message) {
@@ -226,6 +236,178 @@ bool testWorkspaceMapZoomAcrossLanes(GestureAxis axis) {
     return ok;
 }
 
+bool testNativeLayoutTransitionGoalPolicy(Rect& smallPreview, Rect& largePreview) {
+    const Rect desktopViewport{1920, 100, 1920, 1080};
+    const Rect sourceLane{2500, 350, 480, 270};
+    const Rect smallNativeGoal{2400, 370, 960, 540};
+    const Rect retainedLargeGoal{1920, 100, 1920, 1080};
+    const auto acceptedGoal = resolveNativeLayoutTransitionGoal(retainedLargeGoal, false, retainedLargeGoal);
+    const auto changedGoal = resolveNativeLayoutTransitionGoal(smallNativeGoal, false, retainedLargeGoal);
+    const auto projectedLargeGoal = resolveNativeLayoutTransitionGoal(retainedLargeGoal, true, smallNativeGoal);
+    const auto projectedSmallGoal = resolveNativeLayoutTransitionGoal(smallNativeGoal, true, retainedLargeGoal);
+
+    bool ok = true;
+    ok &= expectOptionalRect(acceptedGoal, retainedLargeGoal,
+                 "a retained native goal should remain usable after its compositor animation settles");
+    ok &= expect(!changedGoal, "a later native layout goal should invalidate the retained geometry");
+    ok &= expect(!resolveNativeLayoutTransitionGoal(retainedLargeGoal, false), "a live goal without a retained target should stay dynamic");
+
+    const auto approximateGoal = resolveNativeLayoutTransitionGoal({1920.5, 99.5, 1920.5, 1079.5}, false, retainedLargeGoal);
+    ok &= expect(approximateGoal.has_value(), "retained goals should tolerate compositor rounding up to one half pixel");
+    ok &= expect(!resolveNativeLayoutTransitionGoal({1920.51, 100, 1920, 1080}, false, retainedLargeGoal),
+                 "retained goals should invalidate when a later native edit changes a field beyond tolerance");
+    ok &= expect(!resolveNativeLayoutTransitionGoal(retainedLargeGoal, false,
+                                                      Rect{std::numeric_limits<double>::quiet_NaN(), 100, 1920, 1080}),
+                 "non-finite retained goals should not match a live native goal");
+    ok &= expectOptionalRect(projectedLargeGoal, retainedLargeGoal,
+                             "growing transition targets should use the full native goal even when the live goal is half-sized");
+    ok &= expectOptionalRect(projectedSmallGoal, smallNativeGoal,
+                             "shrinking transition targets should use the new small native goal despite retained full geometry");
+    ok &= expect(!resolveNativeLayoutTransitionGoal({std::numeric_limits<double>::quiet_NaN(), 0, 100, 100}, true),
+                 "native goals with NaN coordinates should be rejected");
+    ok &= expect(!resolveNativeLayoutTransitionGoal({0, std::numeric_limits<double>::infinity(), 100, 100}, true),
+                 "native goals with infinite coordinates should be rejected");
+    ok &= expect(!resolveNativeLayoutTransitionGoal({0, 0, 1, 100}, true), "native goals with dimensions no larger than one should be rejected");
+    ok &= expect(!resolveNativeLayoutTransitionGoal({0, 0, 100, 0}, true), "native goals with nonpositive dimensions should be rejected");
+
+    smallPreview = transformLiveOverviewRect(projectedSmallGoal.value_or(Rect{}), desktopViewport, sourceLane);
+    largePreview = transformLiveOverviewRect(projectedLargeGoal.value_or(Rect{}), desktopViewport, sourceLane);
+    ok &= expect(closeEnough(smallPreview.width * 2.0, largePreview.width) && closeEnough(smallPreview.height * 2.0, largePreview.height),
+                 "projected small and full goals should differ in both width and height");
+    ok &= expectRect(largePreview, sourceLane, "the projected full target should fill its preview lane");
+    ok &= expect(closeEnough(smallPreview.width, sourceLane.width * 0.5) && closeEnough(smallPreview.height, sourceLane.height * 0.5),
+                 "the projected half-size target should preserve its smaller width and height");
+    return ok;
+}
+
+Rect centeredPreviewRect(const Rect& lane, double width, double height) {
+    return {lane.centerX() - width * 0.5, lane.centerY() - height * 0.5, width, height};
+}
+
+bool testWorkspaceTransitionWindowSizeSamples(const Rect& smallPreview, const Rect& largePreview, GestureAxis axis,
+                                             bool widthGrows, bool heightGrows, bool reverse) {
+    constexpr double distance = 900.0;
+    const Rect firstLane{2500, 350, 480, 270};
+    const Rect adjacentLane = axis == GestureAxis::Horizontal ? Rect{2740, 350, 480, 270} : Rect{2500, 590, 480, 270};
+    const Rect sourceLane = reverse ? adjacentLane : firstLane;
+    const Rect targetLane = reverse ? firstLane : adjacentLane;
+    const double smallWidth = std::min(smallPreview.width, largePreview.width);
+    const double largeWidth = std::max(smallPreview.width, largePreview.width);
+    const double smallHeight = std::min(smallPreview.height, largePreview.height);
+    const double largeHeight = std::max(smallPreview.height, largePreview.height);
+    const double sourceWidth = widthGrows ? smallWidth : largeWidth;
+    const double targetWidth = widthGrows ? largeWidth : smallWidth;
+    const double sourceHeight = heightGrows ? smallHeight : largeHeight;
+    const double targetHeight = heightGrows ? largeHeight : smallHeight;
+    const Rect source = centeredPreviewRect(sourceLane, sourceWidth, sourceHeight);
+    const Rect target = centeredPreviewRect(targetLane, targetWidth, targetHeight);
+    const int step = reverse ? -1 : 1;
+    const double midpointDelta = reverse ? -450.0 : 450.0;
+    const double nearEndDelta = reverse ? -899.0 : 899.0;
+    const double endDelta = reverse ? -distance : distance;
+
+    const auto start = workspaceTransitionWindowRect(source, target, axis, distance, 0.0, step);
+    const auto middle = workspaceTransitionWindowRect(source, target, axis, distance, midpointDelta, step);
+    const auto nearEnd = workspaceTransitionWindowRect(source, target, axis, distance, nearEndDelta, step);
+    const auto end = workspaceTransitionWindowRect(source, target, axis, distance, endDelta, step);
+    bool ok = true;
+    ok &= expectOptionalRect(start, source, "transferred windows should start from the captured source preview");
+    ok &= expect(middle.has_value() && closeEnough(middle->width, (sourceWidth + targetWidth) * 0.5) &&
+                     closeEnough(middle->height, (sourceHeight + targetHeight) * 0.5),
+                 "transferred windows should interpolate width and height independently at the midpoint");
+    if (middle) {
+        ok &= expect(closeEnough(workspaceMapAxisCenter(*middle, axis),
+                                 (workspaceMapAxisCenter(source, axis) + workspaceMapAxisCenter(target, axis)) * 0.5) &&
+                         closeEnough(workspaceMapCrossAxisCenter(*middle, axis),
+                                     (workspaceMapCrossAxisCenter(source, axis) + workspaceMapCrossAxisCenter(target, axis)) * 0.5),
+                     "transferred windows should follow the selected lane axis while preserving cross-axis interpolation");
+    }
+    ok &= expect(nearEnd.has_value() && std::abs(nearEnd->width - targetWidth) < 0.5 && std::abs(nearEnd->height - targetHeight) < 0.5,
+                 "transferred window size should approach both target dimensions before commit");
+    ok &= expectOptionalRect(end, target, "workspace transition commit should land on the projected target preview");
+    if (nearEnd && end)
+        ok &= expect(std::abs(nearEnd->x - end->x) < 2.0 && std::abs(nearEnd->y - end->y) < 2.0 &&
+                         std::abs(nearEnd->width - end->width) < 0.5 && std::abs(nearEnd->height - end->height) < 0.5,
+                     "the final transition frame should stay continuous with the committed preview");
+    return ok;
+}
+
+bool testWorkspaceTransitionWindowFallbacks(const Rect& smallPreview, const Rect& largePreview) {
+    constexpr double distance = 900.0;
+    bool ok = true;
+    for (const GestureAxis axis : {GestureAxis::Horizontal, GestureAxis::Vertical}) {
+        const auto pinnedMidpoint = workspaceTransitionWindowRect(smallPreview, largePreview, axis, distance, 450.0, 1, true);
+        ok &= expectOptionalRect(pinnedMidpoint, lerpRect(smallPreview, largePreview, 0.5),
+                                 "pinned windows should interpolate geometry without workspace offsets");
+        ok &= expectOptionalRect(workspaceTransitionWindowRect(smallPreview, std::nullopt, axis, distance, 450.0, 1, true), smallPreview,
+                                 "one-sided pinned windows should remain at their captured geometry");
+        const auto oneSidedSource = workspaceTransitionWindowRect(smallPreview, std::nullopt, axis, distance, 450.0, 1);
+        const auto oneSidedTarget = workspaceTransitionWindowRect(std::nullopt, largePreview, axis, distance, 450.0, 1);
+        const Rect expectedSource = axis == GestureAxis::Horizontal ? Rect{smallPreview.x - 450.0, smallPreview.y, smallPreview.width, smallPreview.height} :
+                                                                      Rect{smallPreview.x, smallPreview.y - 450.0, smallPreview.width, smallPreview.height};
+        const Rect expectedTarget = axis == GestureAxis::Horizontal ? Rect{largePreview.x + 450.0, largePreview.y, largePreview.width, largePreview.height} :
+                                                                      Rect{largePreview.x, largePreview.y + 450.0, largePreview.width, largePreview.height};
+        ok &= expectOptionalRect(oneSidedSource, expectedSource, "source-only transition windows should preserve their prior translation behavior");
+        ok &= expectOptionalRect(oneSidedTarget, expectedTarget, "target-only transition windows should preserve their prior translation behavior");
+        ok &= expectOptionalRect(workspaceTransitionWindowRect(smallPreview, largePreview, axis, 0.0, 0.0, 1), largePreview,
+                                 "zero-distance transitions should resolve directly to the target endpoint");
+        ok &= expectOptionalRect(workspaceTransitionWindowRect(smallPreview, std::nullopt, axis, 0.0, 0.0, 1), smallPreview,
+                                 "zero-distance one-sided transitions should preserve their available endpoint");
+    }
+
+    ok &= expect(!workspaceTransitionWindowRect(std::nullopt, std::nullopt, GestureAxis::Horizontal, distance, 0.0, 1),
+                 "windows absent from both transition states should not produce a transition rect");
+    return ok;
+}
+
+bool testLoggedWindowTransferFixture() {
+    const Rect liveNative{2441.5, 55, 1005, 1085};
+    const Rect finalGoal{1932, 55, 2024, 1085};
+    const Rect desktopViewport{1920, 10, 2048, 1152};
+    const Rect targetViewport{2649.088, 412.992, 589.824, 331.776};
+    const auto forcedGoal = resolveNativeLayoutTransitionGoal(finalGoal, true, liveNative);
+    const Rect stalePreview = transformLiveOverviewRect(liveNative, desktopViewport, targetViewport);
+    const Rect finalPreview = transformLiveOverviewRect(forcedGoal.value_or(Rect{}), desktopViewport, targetViewport);
+
+    bool ok = true;
+    ok &= expect(closeEnough(stalePreview.width, 289.44) && closeEnough(finalPreview.width, 582.912),
+                 "the logged target should project live width 289.44 and final width 582.912");
+    ok &= expect(closeEnough(stalePreview.height, 312.48) && closeEnough(finalPreview.height, 312.48),
+                 "the logged transfer should preserve its 312.48 preview height");
+    for (const GestureAxis axis : {GestureAxis::Horizontal, GestureAxis::Vertical}) {
+        for (const int direction : {-1, 1}) {
+            Rect target = finalPreview;
+            if (axis == GestureAxis::Horizontal)
+                target.x += direction * 240.0;
+            else
+                target.y += direction * 240.0;
+            const auto midpoint = workspaceTransitionWindowRect(stalePreview, target, axis, 900.0, direction * 450.0, direction);
+            const auto endpoint = workspaceTransitionWindowRect(stalePreview, target, axis, 900.0, direction * 900.0, direction);
+            ok &= expect(midpoint && closeEnough(midpoint->width, 436.176) && closeEnough(midpoint->height, 312.48),
+                         "the exact logged fixture should animate width at midpoint while height stays fixed");
+            ok &= expectOptionalRect(endpoint, target, "the exact logged fixture should commit at its forced full-width goal");
+        }
+    }
+    return ok;
+}
+
+bool testNativeLayoutTransitionGeometry() {
+    Rect smallPreview;
+    Rect largePreview;
+    bool ok = testNativeLayoutTransitionGoalPolicy(smallPreview, largePreview);
+    for (const GestureAxis axis : {GestureAxis::Horizontal, GestureAxis::Vertical}) {
+        for (const bool widthGrows : {false, true}) {
+            for (const bool heightGrows : {false, true}) {
+                for (const bool reverse : {false, true})
+                    ok &= testWorkspaceTransitionWindowSizeSamples(smallPreview, largePreview, axis, widthGrows, heightGrows, reverse);
+            }
+        }
+    }
+    ok &= testWorkspaceTransitionWindowFallbacks(smallPreview, largePreview);
+    ok &= testLoggedWindowTransferFixture();
+    return ok;
+}
+
 } // namespace
 
 int main() {
@@ -243,6 +425,7 @@ int main() {
     ok &= testWorkspaceLaneProjection();
     ok &= testWorkspaceMapZoomAcrossLanes(GestureAxis::Vertical);
     ok &= testWorkspaceMapZoomAcrossLanes(GestureAxis::Horizontal);
+    ok &= testNativeLayoutTransitionGeometry();
 
     ok &= expect(hitTest(rects, 50, 50) == std::optional<std::size_t>{0}, "hitTest should find top-left rect");
     ok &= expect(hitTest(rects, 180, 180) == std::optional<std::size_t>{3}, "hitTest should find bottom-right rect");
