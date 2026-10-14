@@ -3366,6 +3366,7 @@ std::optional<Config::Actions::ActionResult> OverviewController::moveInDirection
 
 OverviewController::~OverviewController() {
     finishDirectNiriMouseResize(false);
+    niri_scrolling_detail::clearDirectNiriWorkspaceTransferRenderGuards();
     g_openOverviewLayoutConfigSignatures.erase(this);
     setDamageTrackingOverride(false);
     destroyGaussianBlurPipeline();
@@ -3550,16 +3551,19 @@ bool OverviewController::initialize() {
 #if HYM_HYPRLAND_0_56
     m_windowDestroyListener = events.window.destroy.listen([this](PHLWINDOWREF windowRef) {
         const auto window = windowRef.lock();
+        niri_scrolling_detail::forgetDirectNiriWorkspaceTransferRenderGuard(window);
         pruneWindowActivationHistory(window);
         handleWindowSetChange(window, WindowSetChangeKind::General, true);
     });
 #else
     m_windowDestroyListener = events.window.destroy.listen([this](PHLWINDOW window) {
+        niri_scrolling_detail::forgetDirectNiriWorkspaceTransferRenderGuard(window);
         pruneWindowActivationHistory(window);
         handleWindowSetChange(window, WindowSetChangeKind::General, true);
     });
 #endif
     m_windowCloseListener = events.window.close.listen([this](PHLWINDOW window) {
+        niri_scrolling_detail::forgetDirectNiriWorkspaceTransferRenderGuard(window);
         pruneWindowActivationHistory(window);
         handleWindowSetChange(window, WindowSetChangeKind::General, true);
     });
@@ -7888,6 +7892,13 @@ OverviewController::State OverviewController::captureOverviewWorkspaceTransition
             managed.targetGlobal = currentPreviewRect(*currentManaged);
         managed.relayoutFromGlobal = managed.targetGlobal;
     }
+    if (m_state.relayoutActive) {
+        const double progress = relayoutVisualProgress();
+        for (auto& placeholder : source.emptyWorkspacePlaceholders) {
+            placeholder.targetGlobal = lerpRect(placeholder.relayoutFromGlobal, placeholder.targetGlobal, progress);
+            placeholder.relayoutFromGlobal = placeholder.targetGlobal;
+        }
+    }
     return source;
 }
 
@@ -8347,7 +8358,10 @@ void OverviewController::updateOverviewWorkspaceTransition() {
 
         finishWorkspaceTransitionAnimation();
         if (m_workspaceTransition.mode == WorkspaceTransitionMode::TimedRevert) {
+            const bool rebuildAfterTransition = m_rebuildVisibleStateAfterWorkspaceTransitionCommit;
             clearOverviewWorkspaceTransition();
+            if (rebuildAfterTransition)
+                scheduleVisibleStateRebuild();
             damageOwnedMonitors();
             return;
         }
@@ -8373,7 +8387,10 @@ void OverviewController::updateOverviewWorkspaceTransition() {
         return;
 
     if (m_workspaceTransition.mode == WorkspaceTransitionMode::TimedRevert) {
+        const bool rebuildAfterTransition = m_rebuildVisibleStateAfterWorkspaceTransitionCommit;
         clearOverviewWorkspaceTransition();
+        if (rebuildAfterTransition)
+            scheduleVisibleStateRebuild();
         updateHoveredFromPointer(false, false, false, false, "workspace-transition-revert");
         damageOwnedMonitors();
         return;
@@ -8553,6 +8570,7 @@ void OverviewController::commitOverviewWorkspaceTransition(bool followGesture, b
     clearPendingWindowGeometryRetry();
 
     const auto transitionMonitor = m_workspaceTransition.monitor;
+    const bool rebuildAfterTransition = m_rebuildVisibleStateAfterWorkspaceTransitionCommit;
     const auto oldWorkspace = transitionMonitor->m_activeWorkspace;
     const auto targetWorkspaceId = m_workspaceTransition.targetWorkspaceId;
     const bool targetWorkspaceSyntheticEmpty = m_workspaceTransition.targetWorkspaceSyntheticEmpty;
@@ -8845,9 +8863,13 @@ void OverviewController::commitOverviewWorkspaceTransition(bool followGesture, b
         debugLog(out.str());
     }
 
-    if (m_rebuildVisibleStateAfterWorkspaceTransitionCommit) {
-        m_rebuildVisibleStateAfterWorkspaceTransitionCommit = false;
-        rebuildVisibleState();
+    if (rebuildAfterTransition || m_rebuildVisibleStateAfterWorkspaceTransitionCommit) {
+        if (m_workspaceTransition.active)
+            m_rebuildVisibleStateAfterWorkspaceTransitionCommit = true;
+        else {
+            m_rebuildVisibleStateAfterWorkspaceTransitionCommit = false;
+            rebuildVisibleState();
+        }
     } else {
         updateHoveredFromPointer(false, false, false, false, "workspace-transition-commit");
     }
@@ -9052,7 +9074,8 @@ void OverviewController::processQueuedEditDispatchers() {
                         auto col = scrolling->m_scrollingData->columns[i];
                         if (col) {
                             auto lft = col->lastFocusedTarget.lock();
-                            out << " col#" << i << " lastFocused=" << debugWindowLabel(lft ? lft->target.lock()->window() : PHLWINDOW{});
+                            auto target = lft ? lft->target.lock() : nullptr;
+                            out << " col#" << i << " lastFocused=" << debugWindowLabel(target ? target->window() : PHLWINDOW{});
                         }
                     }
                 }
@@ -9081,7 +9104,7 @@ void OverviewController::processQueuedEditDispatchers() {
                     std::ostringstream out;
                     out << "[hymission] process queued edit dispatcher pre-sync"
                         << " forcedFocus=" << debugWindowLabel(currentFocus)
-                        << " selected=" << (*m_state.selectedIndex < m_state.windows.size() ? debugWindowLabel(m_state.windows[*m_state.selectedIndex].window) : std::string("<none>"))
+                        << " selected=" << (m_state.selectedIndex && *m_state.selectedIndex < m_state.windows.size() ? debugWindowLabel(m_state.windows[*m_state.selectedIndex].window) : std::string("<none>"))
                         << " focusDuringOverview=" << debugWindowLabel(m_state.focusDuringOverview);
                     debugLog(out.str());
                 }
@@ -9113,7 +9136,8 @@ void OverviewController::processQueuedEditDispatchers() {
                         auto col = scrolling->m_scrollingData->columns[i];
                         if (col) {
                             auto lft = col->lastFocusedTarget.lock();
-                            out << " col#" << i << " lastFocused=" << debugWindowLabel(lft ? lft->target.lock()->window() : PHLWINDOW{});
+                            auto target = lft ? lft->target.lock() : nullptr;
+                            out << " col#" << i << " lastFocused=" << debugWindowLabel(target ? target->window() : PHLWINDOW{});
                         }
                     }
                 }
@@ -9161,7 +9185,7 @@ void OverviewController::processQueuedEditDispatchers() {
                     std::ostringstream out;
                     out << "[hymission] process queued edit dispatchers final sync"
                         << " forcedFocus=" << debugWindowLabel(finalFocus)
-                        << " selected=" << (*m_state.selectedIndex < m_state.windows.size() ? debugWindowLabel(m_state.windows[*m_state.selectedIndex].window) : std::string("<none>"))
+                        << " selected=" << (m_state.selectedIndex && *m_state.selectedIndex < m_state.windows.size() ? debugWindowLabel(m_state.windows[*m_state.selectedIndex].window) : std::string("<none>"))
                         << " focusDuringOverview=" << debugWindowLabel(m_state.focusDuringOverview);
                     debugLog(out.str());
                 }
@@ -9184,8 +9208,10 @@ void OverviewController::clearOverviewWorkspaceTransition(const PHLWORKSPACE& co
     m_pendingWorkspaceTransitionCommitFollowGesture = false;
     ++m_workspaceTransitionCommitGeneration;
     m_workspaceTransition = {};
-    if (clearPendingRequests)
+    if (clearPendingRequests) {
+        m_rebuildVisibleStateAfterWorkspaceTransitionCommit = false;
         m_pendingWorkspaceTransitionRequests.clear();
+    }
 }
 
 void OverviewController::commitActiveNiriWorkspaceTransitionForRetarget() {
@@ -12832,6 +12858,16 @@ void OverviewController::scheduleVisibleStateRebuild() {
 }
 
 void OverviewController::processScheduledVisibleStateRebuild(bool transitionActiveWhenScheduled, bool forceRelayout) {
+    switch (resolveOverviewRebuildTransitionAction(m_workspaceTransition.active, activeDirectNiriSingleWorkspaceOverview(), transitionActiveWhenScheduled)) {
+        case OverviewRebuildTransitionAction::Discard:
+            return;
+        case OverviewRebuildTransitionAction::DeferUntilCommit:
+            m_rebuildVisibleStateAfterWorkspaceTransitionCommit = true;
+            return;
+        case OverviewRebuildTransitionAction::Rebuild:
+            break;
+    }
+
     if (forceRelayout || nativeLayoutOverviewActive()) {
         auto preferredWindow = Desktop::focusState()->window();
         if (!preferredWindow || !hasManagedWindow(preferredWindow))
@@ -12841,12 +12877,6 @@ void OverviewController::processScheduledVisibleStateRebuild(bool transitionActi
     }
 
     if (m_workspaceTransition.active) {
-        if (activeDirectNiriSingleWorkspaceOverview() && !transitionActiveWhenScheduled) {
-            if (debugLogsEnabled())
-                debugLog("[hymission] discard stale direct niri rebuild during workspace transition");
-            return;
-        }
-
         rebuildVisibleState();
         return;
     }

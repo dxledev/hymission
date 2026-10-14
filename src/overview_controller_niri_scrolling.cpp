@@ -1423,6 +1423,23 @@ void armDirectNiriWorkspaceTransferRenderGuard(const PHLWINDOW& window) {
     armDirectNiriWorkspaceTransferRenderGuardLocal(window);
 }
 
+void forgetDirectNiriWorkspaceTransferRenderGuard(const PHLWINDOW& window) {
+    if (!window)
+        return;
+
+    const void* const key = window.get();
+    if (!key)
+        return;
+
+    g_directNiriSeenWorkspaceIds.erase(key);
+    g_directNiriWorkspaceTransferGuardedUntil.erase(key);
+}
+
+void clearDirectNiriWorkspaceTransferRenderGuards() {
+    g_directNiriSeenWorkspaceIds.clear();
+    g_directNiriWorkspaceTransferGuardedUntil.clear();
+}
+
 namespace {
 
 struct TwoColumnSwapTraceState {
@@ -5137,8 +5154,7 @@ Config::Actions::ActionResult OverviewController::moveToWorkspaceActionHook(PHLW
     const auto movedWindow = window.value_or(Desktop::focusState()->window());
     const bool canRouteThroughOverviewMove = !m_overviewEditingDispatcherInProgress && workspace && !workspace->m_isSpecialWorkspace &&
         isVisible() && m_state.phase == Phase::Active && activeDirectNiriSingleWorkspaceOverview() && movedWindow && movedWindow == selectedWindow() &&
-        movedWindow->m_isMapped && hasManagedWindow(movedWindow) &&
-        (!silent || isScrollingWorkspace(movedWindow->m_workspace));
+        movedWindow->m_isMapped && hasManagedWindow(movedWindow);
     if (!canRouteThroughOverviewMove)
         return m_moveToWorkspaceActionOriginal(std::move(workspace), silent, std::move(window));
 
@@ -5519,55 +5535,6 @@ SDispatchResult OverviewController::runOverviewEditingDispatcher(const char* dis
         isResizeColumnLayoutMessage || isDirectMoveColumnDispatcher || isDirectSwapColumnDispatcher || isDirectResizeColumnDispatcher ||
         isDirectResizeActiveDispatcher || isDirectionalMoveWindowDispatcher;
 
-    const auto nativeOverviewWorkspace = activeLayoutWorkspace();
-    const bool nativeLayoutOverviewOpen = isVisible() && niriModeAppliesToState(m_state) && nativeOverviewWorkspace &&
-        !isScrollingWorkspace(nativeOverviewWorkspace);
-    if (nativeLayoutOverviewOpen) {
-        PHLWINDOW selectedBefore = selectedWindow();
-        const auto validSelectedWindow = [&](const PHLWINDOW& window) {
-            return window && window->m_isMapped && !window->m_pinned && hasManagedWindow(window) &&
-                (!nativeOverviewWorkspace || window->m_workspace == nativeOverviewWorkspace);
-        };
-        if (!validSelectedWindow(selectedBefore))
-            selectedBefore = {};
-
-        // Moving a window to another workspace is a lane-to-lane transition in
-        // the overview regardless of the workspace's layout, so animate it the
-        // same way scrolling workspaces do (along the lane stack axis).
-        if (isMoveToWorkspaceDispatcher && !isSilentMoveToWorkspaceDispatcher && m_state.phase == Phase::Active && selectedBefore && !m_workspaceTransition.active &&
-            !m_workspaceTransitionCommitScheduled && !m_applyingWorkspaceTransitionCommit && !m_overviewEditingDispatcherInProgress &&
-            activeDirectNiriSingleWorkspaceOverview()) {
-            if (const auto result = tryRunDirectNiriMoveToWorkspaceDispatcher(args, selectedBefore, isSilentMoveToWorkspaceDispatcher); result)
-                return *result;
-        }
-
-        if (m_state.phase == Phase::Active && selectedBefore) {
-            selectWindowInState(m_state, selectedBefore);
-            m_state.focusDuringOverview = selectedBefore;
-            if (Desktop::focusState()->window() != selectedBefore)
-                focusWindowCompat(selectedBefore, false, Desktop::FOCUS_REASON_DESKTOP_STATE_CHANGE);
-        }
-
-        SDispatchResult result;
-        {
-            const ScopedFlag dispatchGuard(m_overviewEditingDispatcherInProgress);
-            result = (*original)(std::move(args));
-        }
-
-        if (result.success && isVisible() && (m_state.phase == Phase::Opening || m_state.phase == Phase::Active)) {
-            PHLWINDOW preferred = Desktop::focusState()->window();
-            if (!validSelectedWindow(preferred))
-                preferred = validSelectedWindow(selectedBefore) ? selectedBefore : PHLWINDOW{};
-            if (insideRenderLifecycle())
-                scheduleVisibleStateRebuild();
-            else
-                rebuildVisibleState(preferred, true);
-            damageOwnedMonitors();
-        }
-
-        return result;
-    }
-
     const bool niriSingleWorkspaceTransition = timedNiriSingleWorkspaceTransitionActive();
     const auto transitionAction = resolveOverviewEditTransitionAction(
         m_workspaceTransition.active,
@@ -5643,6 +5610,48 @@ SDispatchResult OverviewController::runOverviewEditingDispatcher(const char* dis
 
     if (m_workspaceTransition.active && m_workspaceTransition.mode == WorkspaceTransitionMode::TimedCommit && !isFocusOrMovementDispatcher)
         commitActiveNiriWorkspaceTransitionForRetarget();
+
+    const auto nativeOverviewWorkspace = activeLayoutWorkspace();
+    if (nativeLayoutOverviewActive()) {
+        PHLWINDOW selectedBefore = selectedWindow();
+        const auto validSelectedWindow = [&](const PHLWINDOW& window) {
+            return window && window->m_isMapped && !window->m_pinned && hasManagedWindow(window) &&
+                (!nativeOverviewWorkspace || window->m_workspace == nativeOverviewWorkspace);
+        };
+        if (!validSelectedWindow(selectedBefore))
+            selectedBefore = {};
+
+        if (isMoveToWorkspaceDispatcher && m_state.phase == Phase::Active && activeDirectNiriSingleWorkspaceOverview()) {
+            if (const auto result = tryRunDirectNiriMoveToWorkspaceDispatcher(args, selectedBefore, isSilentMoveToWorkspaceDispatcher); result)
+                return *result;
+        }
+
+        if (m_state.phase == Phase::Active && selectedBefore) {
+            selectWindowInState(m_state, selectedBefore);
+            m_state.focusDuringOverview = selectedBefore;
+            if (Desktop::focusState()->window() != selectedBefore)
+                focusWindowCompat(selectedBefore, false, Desktop::FOCUS_REASON_DESKTOP_STATE_CHANGE);
+        }
+
+        SDispatchResult result;
+        {
+            const ScopedFlag dispatchGuard(m_overviewEditingDispatcherInProgress);
+            result = (*original)(std::move(args));
+        }
+
+        if (result.success && isVisible() && (m_state.phase == Phase::Opening || m_state.phase == Phase::Active)) {
+            PHLWINDOW preferred = Desktop::focusState()->window();
+            if (!validSelectedWindow(preferred))
+                preferred = validSelectedWindow(selectedBefore) ? selectedBefore : PHLWINDOW{};
+            if (insideRenderLifecycle())
+                scheduleVisibleStateRebuild();
+            else
+                rebuildVisibleState(preferred, true);
+            damageOwnedMonitors();
+        }
+
+        return result;
+    }
 
     PHLWINDOW selectedBefore = overviewActive ? selectedWindow() : PHLWINDOW{};
 
@@ -7508,6 +7517,7 @@ void OverviewController::stabilizeInactiveNiriFloatingOpenGeometry(WORKSPACEID s
 
 void OverviewController::resetDirectNiriWorkspaceLanes() {
     niri_scrolling_detail::clearRetainedDirectNiriWorkspaceLanes();
+    niri_scrolling_detail::clearDirectNiriWorkspaceTransferRenderGuards();
 }
 
 bool OverviewController::removeOccupiedWorkspacePlaceholder(State& state, const PHLWINDOW& window) const {

@@ -39,6 +39,12 @@ enum class OverviewEditTransitionAction {
     Defer,
 };
 
+enum class OverviewRebuildTransitionAction {
+    Rebuild,
+    Discard,
+    DeferUntilCommit,
+};
+
 // Workspace-strip placement and empty-workspace population policy.
 enum class WorkspaceStripAnchor {
     Top,
@@ -102,6 +108,8 @@ struct WorkspaceStripReservation {
                                                                                  bool liveFocusTriggeredWorkspaceChange, bool allowsWorkspaceSwitchInOverview);
 [[nodiscard]] OverviewEditTransitionAction resolveOverviewEditTransitionAction(bool workspaceTransitionActive, bool focusOrMovementDispatcher,
                                                                                 bool timedCommitTransition, bool niriSingleWorkspaceTransition);
+[[nodiscard]] OverviewRebuildTransitionAction resolveOverviewRebuildTransitionAction(bool workspaceTransitionActive, bool singleWorkspaceOverview,
+                                                                                     bool transitionActiveWhenScheduled);
 
 // Configuration parsing and scrolling-direction normalization.
 [[nodiscard]] bool                     matchesNamespacePattern(std::string_view namespaceValue, std::string_view pattern);

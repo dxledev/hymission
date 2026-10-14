@@ -30,5 +30,7 @@ bool isActiveController(const OverviewController* controller);
 bool shouldWrapWorkspaceIds(WORKSPACEID targetId, WORKSPACEID currentId);
 void retainDirectNiriWorkspaceLaneForDrag(const PHLMONITOR& monitor, const PHLWORKSPACE& workspace);
 void armDirectNiriWorkspaceTransferRenderGuard(const PHLWINDOW& window);
+void forgetDirectNiriWorkspaceTransferRenderGuard(const PHLWINDOW& window);
+void clearDirectNiriWorkspaceTransferRenderGuards();
 
 } // namespace hymission::niri_scrolling_detail

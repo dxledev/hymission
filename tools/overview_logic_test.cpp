@@ -103,8 +103,9 @@ bool testWorkspaceLaneProjection() {
 }
 
 struct WorkspaceMapScene {
+    GestureAxis axis = GestureAxis::Vertical;
     Rect nativeDesktopViewport{1920, 100, 1600, 900};
-    std::vector<Rect> laneViewports{{2300, 180, 400, 225}, {2300, 420, 400, 225}, {2300, 660, 400, 225}};
+    std::vector<Rect> laneViewports;
     std::vector<Rect> nativeWindowRects{{2400, 330, 600, 340}, {2440, 340, 520, 300}, {2520, 380, 600, 360}};
     std::vector<Rect> previewWindows;
 };
@@ -114,11 +115,25 @@ struct WorkspaceMapCameraSources {
     std::vector<Rect> windows;
 };
 
-WorkspaceMapScene makeWorkspaceMapScene() {
+WorkspaceMapScene makeWorkspaceMapScene(GestureAxis axis) {
     WorkspaceMapScene scene;
+    scene.axis = axis;
+    if (axis == GestureAxis::Vertical)
+        scene.laneViewports = {{2300, 180, 400, 225}, {2300, 420, 400, 225}, {2300, 660, 400, 225}};
+    else
+        scene.laneViewports = {{2060, 300, 400, 225}, {2300, 300, 400, 225}, {2540, 300, 400, 225}};
+
     for (std::size_t index = 0; index < scene.laneViewports.size(); ++index)
         scene.previewWindows.push_back(transformLiveOverviewRect(scene.nativeWindowRects[index], scene.nativeDesktopViewport, scene.laneViewports[index]));
     return scene;
+}
+
+double workspaceMapAxisCenter(const Rect& rect, GestureAxis axis) {
+    return axis == GestureAxis::Vertical ? rect.centerY() : rect.centerX();
+}
+
+double workspaceMapCrossAxisCenter(const Rect& rect, GestureAxis axis) {
+    return axis == GestureAxis::Vertical ? rect.centerX() : rect.centerY();
 }
 
 WorkspaceMapCameraSources workspaceMapCameraSources(const WorkspaceMapScene& scene, std::size_t selectedLane) {
@@ -141,13 +156,17 @@ bool expectWorkspaceMapFrame(const WorkspaceMapScene& scene, const WorkspaceMapC
     }
 
     constexpr double cameraScale = 4.0;
-    const double laneStep = scene.laneViewports[1].centerY() - scene.laneViewports[0].centerY();
+    const double laneStep = workspaceMapAxisCenter(scene.laneViewports[1], scene.axis) - workspaceMapAxisCenter(scene.laneViewports[0], scene.axis);
     const double expectedSeparation = laneStep * (cameraScale * (1.0 - openness) + openness);
-    ok &= expect(closeEnough(visibleLanes[1].centerY() - visibleLanes[0].centerY(), expectedSeparation) &&
-                     closeEnough(visibleLanes[2].centerY() - visibleLanes[1].centerY(), expectedSeparation),
+    ok &= expect(closeEnough(workspaceMapAxisCenter(visibleLanes[1], scene.axis) - workspaceMapAxisCenter(visibleLanes[0], scene.axis), expectedSeparation) &&
+                     closeEnough(workspaceMapAxisCenter(visibleLanes[2], scene.axis) - workspaceMapAxisCenter(visibleLanes[1], scene.axis), expectedSeparation),
                  "workspace-map zoom should preserve lane order and scale separation at every openness sample");
-    ok &= expect(visibleLanes[0].centerY() < visibleLanes[1].centerY() && visibleLanes[1].centerY() < visibleLanes[2].centerY(),
+    ok &= expect(workspaceMapAxisCenter(visibleLanes[0], scene.axis) < workspaceMapAxisCenter(visibleLanes[1], scene.axis) &&
+                     workspaceMapAxisCenter(visibleLanes[1], scene.axis) < workspaceMapAxisCenter(visibleLanes[2], scene.axis),
                  "adjacent workspace lanes should not collapse onto the selected lane during zoom");
+    ok &= expect(closeEnough(workspaceMapCrossAxisCenter(visibleLanes[0], scene.axis), workspaceMapCrossAxisCenter(visibleLanes[1], scene.axis)) &&
+                     closeEnough(workspaceMapCrossAxisCenter(visibleLanes[1], scene.axis), workspaceMapCrossAxisCenter(visibleLanes[2], scene.axis)),
+                 "workspace-map zoom should preserve the lane cross-axis position");
 
     for (std::size_t index = 0; index < scene.laneViewports.size(); ++index) {
         const Rect& lane = visibleLanes[index];
@@ -167,29 +186,43 @@ bool expectWorkspaceMapFrame(const WorkspaceMapScene& scene, const WorkspaceMapC
     return ok;
 }
 
-bool testWorkspaceMapZoomAcrossLanes() {
+bool testWorkspaceMapZoomAcrossLanes(GestureAxis axis) {
     constexpr std::size_t activeLane = 1;
     constexpr std::size_t exitSelectedLane = 2;
-    const WorkspaceMapScene scene = makeWorkspaceMapScene();
+    constexpr std::size_t reopenedLane = 0;
+    const WorkspaceMapScene scene = makeWorkspaceMapScene(axis);
     const WorkspaceMapCameraSources openingSources = workspaceMapCameraSources(scene, activeLane);
     const WorkspaceMapCameraSources closingSources = workspaceMapCameraSources(scene, exitSelectedLane);
+    const WorkspaceMapCameraSources reopenedSources = workspaceMapCameraSources(scene, reopenedLane);
 
     bool ok = true;
     ok &= expectRect(openingSources.lanes[activeLane], scene.nativeDesktopViewport,
                      "the active lane camera endpoint should cover the nonzero-origin desktop viewport");
     ok &= expectRect(openingSources.windows[activeLane], scene.nativeWindowRects[activeLane],
                      "the active lane window should return to its native rectangle at open");
-    ok &= expectRect(openingSources.lanes[0], {1920, -860, 1600, 900}, "the upper lane camera endpoint should retain its offset from the active lane");
-    ok &= expectRect(openingSources.lanes[2], {1920, 1060, 1600, 900}, "the lower lane camera endpoint should retain its offset from the active lane");
+    const double activeLaneOffset = (workspaceMapAxisCenter(scene.laneViewports[0], axis) - workspaceMapAxisCenter(scene.laneViewports[activeLane], axis)) * 4.0;
+    const double lastLaneOffset = (workspaceMapAxisCenter(scene.laneViewports[2], axis) - workspaceMapAxisCenter(scene.laneViewports[activeLane], axis)) * 4.0;
+    const Rect expectedFirstLane = axis == GestureAxis::Vertical ? Rect{1920, 100 + activeLaneOffset, 1600, 900} :
+                                                                  Rect{1920 + activeLaneOffset, 100, 1600, 900};
+    const Rect expectedLastLane = axis == GestureAxis::Vertical ? Rect{1920, 100 + lastLaneOffset, 1600, 900} :
+                                                                 Rect{1920 + lastLaneOffset, 100, 1600, 900};
+    ok &= expectRect(openingSources.lanes[0], expectedFirstLane, "the first lane camera endpoint should retain its offset on the selected axis");
+    ok &= expectRect(openingSources.lanes[2], expectedLastLane, "the last lane camera endpoint should retain its offset on the selected axis");
     ok &= expectRect(closingSources.lanes[exitSelectedLane], scene.nativeDesktopViewport,
                      "the newly selected lane should become the native desktop endpoint on close");
     ok &= expectRect(closingSources.windows[exitSelectedLane], scene.nativeWindowRects[exitSelectedLane],
-                     "the close path should end at the selected lane's native window, not the original lane's window");
+                     "the close path should end at the newly selected lane's native window");
+    ok &= expectRect(reopenedSources.lanes[reopenedLane], scene.nativeDesktopViewport,
+                     "reopening from another selected lane should use that lane as the native desktop endpoint");
+    ok &= expectRect(reopenedSources.windows[reopenedLane], scene.nativeWindowRects[reopenedLane],
+                     "reopening from another selected lane should return its own window to native geometry");
 
     for (const double openness : {0.0, 0.25, 0.5, 0.75, 1.0})
         ok &= expectWorkspaceMapFrame(scene, openingSources, openness);
     for (const double openness : {1.0, 0.75, 0.5, 0.25, 0.0})
         ok &= expectWorkspaceMapFrame(scene, closingSources, openness);
+    for (const double openness : {0.0, 0.5, 1.0})
+        ok &= expectWorkspaceMapFrame(scene, reopenedSources, openness);
     return ok;
 }
 
@@ -208,7 +241,8 @@ int main() {
     bool ok = testOverviewRounding();
     ok &= testNamespacePatterns();
     ok &= testWorkspaceLaneProjection();
-    ok &= testWorkspaceMapZoomAcrossLanes();
+    ok &= testWorkspaceMapZoomAcrossLanes(GestureAxis::Vertical);
+    ok &= testWorkspaceMapZoomAcrossLanes(GestureAxis::Horizontal);
 
     ok &= expect(hitTest(rects, 50, 50) == std::optional<std::size_t>{0}, "hitTest should find top-left rect");
     ok &= expect(hitTest(rects, 180, 180) == std::optional<std::size_t>{3}, "hitTest should find bottom-right rect");
@@ -296,6 +330,14 @@ int main() {
                  "other overview modes should continue deferring focus or movement edits");
     ok &= expect(resolveOverviewEditTransitionAction(true, false, true, true) == OverviewEditTransitionAction::Run,
                  "unrelated dispatchers should preserve their existing transition handling");
+    ok &= expect(resolveOverviewRebuildTransitionAction(false, true, false) == OverviewRebuildTransitionAction::Rebuild,
+                 "overview rebuilds should run when no workspace transition is active");
+    ok &= expect(resolveOverviewRebuildTransitionAction(true, false, true) == OverviewRebuildTransitionAction::Rebuild,
+                 "multi-workspace overviews should rebuild during workspace transitions");
+    ok &= expect(resolveOverviewRebuildTransitionAction(true, true, false) == OverviewRebuildTransitionAction::Discard,
+                 "single-workspace rebuilds queued before a transition should be discarded");
+    ok &= expect(resolveOverviewRebuildTransitionAction(true, true, true) == OverviewRebuildTransitionAction::DeferUntilCommit,
+                 "single-workspace rebuilds queued during a transition should wait for its commit");
 
     ok &= expect(parseWorkspaceStripAnchor("top") == WorkspaceStripAnchor::Top, "top anchor should parse");
     ok &= expect(parseWorkspaceStripAnchor(" LEFT ") == WorkspaceStripAnchor::Left, "left anchor parsing should ignore case and whitespace");

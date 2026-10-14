@@ -300,6 +300,14 @@ OverviewEditTransitionAction resolveOverviewEditTransitionAction(bool workspaceT
     return OverviewEditTransitionAction::Defer;
 }
 
+OverviewRebuildTransitionAction resolveOverviewRebuildTransitionAction(bool workspaceTransitionActive, bool singleWorkspaceOverview,
+                                                                       bool transitionActiveWhenScheduled) {
+    if (!workspaceTransitionActive || !singleWorkspaceOverview)
+        return OverviewRebuildTransitionAction::Rebuild;
+
+    return transitionActiveWhenScheduled ? OverviewRebuildTransitionAction::DeferUntilCommit : OverviewRebuildTransitionAction::Discard;
+}
+
 WorkspaceStripAnchor parseWorkspaceStripAnchor(std::string_view value) {
     value = trimAsciiWhitespace(value);
 
