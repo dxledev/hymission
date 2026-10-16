@@ -240,6 +240,22 @@ inline bool windowIsFadingOut(const PHLWINDOW& window) {
 #endif
 }
 
+// True when the window's surface requested a background-effect blur region and
+// that region is empty (0.56+ ext-background-effect); older Hyprland has no such state.
+inline bool windowBlurRegionRequestedButEmpty(const PHLWINDOW& window, bool& requested) {
+    requested = false;
+#if HYM_HYPRLAND_0_56
+    const auto surface = window ? window->wlSurface() : nullptr;
+    if (surface && surface->m_hasBackgroundEffect) {
+        requested = true;
+        return surface->m_blurRegion.empty();
+    }
+#else
+    (void)window;
+#endif
+    return false;
+}
+
 inline bool layerIsReadyToDelete(const PHLLS& layer) {
 #if HYM_HYPRLAND_0_56
     // 0.56 removes unmapped layers from LayerState before rendering their detached fadeout snapshot.

@@ -10598,6 +10598,19 @@ float OverviewController::managedPreviewAlphaFor(const PHLWINDOW& window, float 
     return directNiriDraggedPreviewAlpha(window, managed ? managed->previewAlpha : fallback);
 }
 
+// Mirrors the protected IHyprRenderer::shouldBlur(PHLWINDOW).
+static bool windowShouldBlur(const PHLWINDOW& window) {
+    if (!window || g_pHyprRenderer->m_bRenderingSnapshot || getConfigInt(nullptr, "decoration:blur:enabled", 1) == 0)
+        return false;
+
+    if (window->m_ruleApplicator->noBlur().valueOrDefault() || window->m_ruleApplicator->RGBX().valueOrDefault() || window->opaque())
+        return false;
+
+    bool regionRequested = false;
+    const bool regionEmpty = hyprland_compat::windowBlurRegionRequestedButEmpty(window, regionRequested);
+    return !regionRequested || !regionEmpty;
+}
+
 std::size_t OverviewController::renderDirectNiriSurfaceTreeOverlay(const ManagedWindow& managed, const PHLMONITOR& monitor,
                                                                    const Time::steady_tp& now, float alpha, const char* context,
                                                                    std::optional<Rect> targetOverride) const {
@@ -10625,7 +10638,11 @@ std::size_t OverviewController::renderDirectNiriSurfaceTreeOverlay(const Managed
     renderData.decorate = false;
     renderData.rounding = renderData.dontRound ? 0 : window->rounding() * monitor->m_scale;
     renderData.roundingPower = renderData.dontRound ? 2.0F : window->roundingPower();
-    renderData.blur = false;
+    // Inactive-workspace previews skip the native pass, so give them the window's
+    // configured blur here.  blockBlurOptimization makes Hyprland blur the live
+    // framebuffer (which already holds the overview wallpaper proxy) instead of the
+    // cached pre-blur, which only covers natively queued elements.
+    renderData.blur = windowShouldBlur(window);
     renderData.blockBlurOptimization = true;
     renderData.pWindow = window;
 
