@@ -876,7 +876,6 @@ class OverviewController {
                                                                       const PHLMONITOR& renderMonitor) const;
     void                                        renderInactiveWindowBorders(const State& state, double progress, bool useTargetGeometry) const;
     void                                        renderFocusedWindowBorder(const State& state, double progress, bool useTargetGeometry) const;
-    [[nodiscard]] bool                          suppressSurfaceBlur(void* surfacePassThisptr) const;
     [[nodiscard]] bool                          prepareSurfaceRenderData(void* surfacePassThisptr, const char* context, CSurfacePassElement::SRenderData*& renderData,
                                                                          PHLMONITOR& monitor, SurfaceRenderDataSnapshot& snapshot) const;
     void                                        restoreSurfaceRenderData(CSurfacePassElement::SRenderData* renderData, const SurfaceRenderDataSnapshot& snapshot) const;

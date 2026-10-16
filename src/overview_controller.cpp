@@ -4366,6 +4366,19 @@ void OverviewController::renderStage(eRenderStage stage) {
     if (m_stripSnapshotRenderDepth > 0)
         return;
 
+    // The overview wallpaper proxy is drawn at a different scale/position than the
+    // native wallpaper, so Hyprland's cached pre-blur would go stale.  Hyprland reads
+    // m_blurFBDirty in render.pre and clears it while the pass renders, and
+    // m_renderData.pMonitor is already reset by RENDER_POST, so re-arm it here for
+    // every owned monitor; the next pre-blur is then built from the proxy (queued
+    // before CPreBlurElement) and window blur follows decoration:blur.
+    if (stage == RENDER_POST && isVisible() && !m_deactivatePending) {
+        for (const auto& ownedMonitor : ownedMonitors()) {
+            if (ownedMonitor)
+                ownedMonitor->m_blurFBDirty = true;
+        }
+    }
+
     if (!isVisible())
         return;
 
@@ -6514,9 +6527,6 @@ bool OverviewController::surfaceNeedsLiveBlurHook(void* surfacePassThisptr) {
     if (!m_surfaceNeedsLiveBlurOriginal)
         return false;
 
-    if (suppressSurfaceBlur(surfacePassThisptr))
-        return false;
-
     auto* renderData = surfaceRenderDataMutable(surfacePassThisptr);
     auto  monitor = renderData ? renderData->pMonitor.lock() : PHLMONITOR{};
     if (!renderData || !renderData->pWindow || !monitor || !isVisible() || !ownsMonitor(monitor) ||
@@ -6537,9 +6547,6 @@ bool OverviewController::surfaceNeedsLiveBlurHook(void* surfacePassThisptr) {
 
 bool OverviewController::surfaceNeedsPrecomputeBlurHook(void* surfacePassThisptr) {
     if (!m_surfaceNeedsPrecomputeBlurOriginal)
-        return false;
-
-    if (suppressSurfaceBlur(surfacePassThisptr))
         return false;
 
     auto* renderData = surfaceRenderDataMutable(surfacePassThisptr);
@@ -11646,31 +11653,6 @@ void OverviewController::renderHiddenStripLayerProxies() const {
     }
 }
 
-bool OverviewController::suppressSurfaceBlur(void* surfacePassThisptr) const {
-    auto* renderData = surfaceRenderDataMutable(surfacePassThisptr);
-    if (!renderData || !renderData->pWindow || renderData->popup || !renderData->blur)
-        return false;
-
-    const auto monitor = renderData->pMonitor.lock();
-    if (!monitor || !ownsMonitor(monitor) || !renderableManagedWindowFor(renderData->pWindow, monitor))
-        return false;
-
-    const bool wallpaperWorkspace = niriWallpaperZoomAppliesToMonitor(m_state, monitor);
-    if (!wallpaperWorkspace && !isAnimating())
-        return false;
-
-    if (debugSurfaceLogsEnabled()) {
-        std::ostringstream out;
-        out << "[hymission] blur suppress " << debugWindowLabel(renderData->pWindow) << " phase="
-            << (m_state.phase == Phase::Opening ? "opening" : m_state.phase == Phase::Closing ? "closing" : "active")
-            << " wallpaperWorkspace=" << (wallpaperWorkspace ? 1 : 0);
-        debugSurfaceLog(out.str());
-    }
-
-    renderData->blur = false;
-    return true;
-}
-
 bool OverviewController::prepareSurfaceRenderData(void* surfacePassThisptr, const char* context, CSurfacePassElement::SRenderData*& renderData, PHLMONITOR& monitor,
                                                   SurfaceRenderDataSnapshot& snapshot) const {
     renderData = surfaceRenderDataMutable(surfacePassThisptr);
@@ -11700,14 +11682,11 @@ bool OverviewController::prepareSurfaceRenderData(void* surfacePassThisptr, cons
         .clipBox = renderData->clipBox,
     };
 
-    const bool suppressBlur = suppressSurfaceBlur(surfacePassThisptr);
     const bool transformed = transformSurfaceRenderDataForWindow(renderData->pWindow, monitor, *renderData);
     if (transformed) {
         renderData->alpha = m_surfaceRenderAlphaOverride ? *m_surfaceRenderAlphaOverride : managedPreviewAlphaFor(renderData->pWindow, snapshot.alpha);
         if (!hyprland_compat::windowIsFadingOut(renderData->pWindow))
             renderData->fadeAlpha = 1.0F;
-        if (suppressBlur)
-            renderData->blur = false;
     }
 
     if (transformed && debugSurfaceLogsEnabled()) {
