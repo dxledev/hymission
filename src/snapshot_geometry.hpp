@@ -35,6 +35,17 @@ inline std::optional<FramebufferBlitRect> rectToFramebufferBlitRect(const Rect& 
     return FramebufferBlitRect{left, bottom, right, top};
 }
 
+// Camera-synthesized overview rects assume uniform column spacing, but real
+// scrolling windows have asymmetric gap/border insets. Prefer the rect the
+// window is really drawn at when its size agrees with the synthesized one.
+inline Rect preferRealOverviewRect(const Rect& synthesized, const Rect& real, double sizeTolerance = 4.0) {
+    if (real.width <= 1.0 || real.height <= 1.0)
+        return synthesized;
+    if (std::abs(real.width - synthesized.width) > sizeTolerance || std::abs(real.height - synthesized.height) > sizeTolerance)
+        return synthesized;
+    return real;
+}
+
 struct PixelCopy {
     Rect source;
     Rect destination;

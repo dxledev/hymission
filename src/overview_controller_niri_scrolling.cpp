@@ -4044,10 +4044,7 @@ bool OverviewController::applyNiriScrollingCameraExitGeometry(const PHLWINDOW& w
         // spacing. Land windows of the focused workspace on the rect Hyprland
         // will actually draw them at, so the close/cancel handoff does not jump.
         if (!managed.window->m_pinned && !managed.isNiriFloatingOverlay && managed.window->m_workspace == window->m_workspace) {
-            const Rect goal = goalGlobalRectForWindow(managed.window);
-            if (goal.width > 1.0 && goal.height > 1.0 && std::abs(goal.width - managed.exitGlobal.width) <= 4.0 &&
-                std::abs(goal.height - managed.exitGlobal.height) <= 4.0)
-                managed.exitGlobal = goal;
+            managed.exitGlobal = snapshot_geometry::preferRealOverviewRect(managed.exitGlobal, goalGlobalRectForWindow(managed.window));
         }
     }
 
@@ -4244,9 +4241,8 @@ bool OverviewController::applyNiriScrollingCameraOpenGeometry(const PHLWINDOW& w
         // they do not jump a few pixels on the first frame and re-settle later.
         if (!managed.window->m_pinned && managed.window->m_workspace == window->m_workspace) {
             const Rect live = liveGlobalRectForWindow(managed.window);
-            if (live.width > 1.0 && live.height > 1.0 && rectApproxEqual(live, goalGlobalRectForWindow(managed.window), 0.5) &&
-                std::abs(live.width - managed.naturalGlobal.width) <= 4.0 && std::abs(live.height - managed.naturalGlobal.height) <= 4.0)
-                managed.naturalGlobal = live;
+            if (rectApproxEqual(live, goalGlobalRectForWindow(managed.window), 0.5))
+                managed.naturalGlobal = snapshot_geometry::preferRealOverviewRect(managed.naturalGlobal, live);
         }
         managed.exitGlobal = managed.naturalGlobal;
     }

@@ -58,6 +58,15 @@ bool checkStrip(const Rect& source, const Rect& expectedSource, double padding, 
 
 int main() {
     bool ok = true;
+    // Scrolling overview: the camera-synthesized rect (centered in the layout
+    // box) is 2.5px left of where Hyprland really draws the window.
+    const Rect synthesized{1934.5, 45.0, 1005.0, 1095.0};
+    const Rect real{1937.0, 45.0, 1005.0, 1095.0};
+    ok &= expect(sameRect(preferRealOverviewRect(synthesized, real), real), "overview rect must start from the real drawn rect");
+    ok &= expect(sameRect(preferRealOverviewRect(synthesized, {1937.0, 45.0, 1200.0, 1095.0}), synthesized),
+                 "mid-resize real rect must keep the synthesized rect");
+    ok &= expect(sameRect(preferRealOverviewRect(synthesized, {0.0, 0.0, 0.0, 0.0}), synthesized), "empty real rect must keep the synthesized rect");
+
     for (const double scale : {1.0, 1.25}) {
         const double padding = 24.0 * scale;
         const double thickness = 10.0 * scale;
