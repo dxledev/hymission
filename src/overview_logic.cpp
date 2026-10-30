@@ -94,6 +94,14 @@ Rect niriCameraExitRect(const Rect& preview, const Rect& selectedPreview, const 
                 preview.width * scaleX, preview.height * scaleY};
 }
 
+BorderGradientSource borderGradientSource(bool selectionLeadsRealFocus, bool windowIsSelected, bool windowIsRealFocus) {
+    if (!selectionLeadsRealFocus)
+        return BorderGradientSource::Native;
+    if (windowIsSelected)
+        return BorderGradientSource::ForceActive;
+    return windowIsRealFocus ? BorderGradientSource::ForceInactive : BorderGradientSource::Native;
+}
+
 float niriInactivePreviewOverlayAlpha(float previewAlpha, double /*overviewProgress*/) {
     return previewAlpha < 0.0F ? 0.0F : (previewAlpha > 1.0F ? 1.0F : previewAlpha);
 }

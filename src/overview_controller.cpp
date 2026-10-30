@@ -4366,6 +4366,9 @@ void OverviewController::renderStage(eRenderStage stage) {
     if (m_stripSnapshotRenderDepth > 0)
         return;
 
+    if (stage == RENDER_PRE)
+        m_nativeBorderWindows.clear();
+
     // The overview wallpaper proxy is drawn at a different scale/position than the
     // native wallpaper, so Hyprland's cached pre-blur would go stale.  Hyprland reads
     // m_blurFBDirty in render.pre and clears it while the pass renders, and
@@ -6087,8 +6090,16 @@ void OverviewController::borderDrawHook(void* borderDecorationThisptr, const PHL
         return;
     }
 
-    if (usesStackedSwapBorder(m_state, *managed, monitor))
-        queueStackedSwapBorder(m_state, *managed, monitor);
+    // Snapshot captures and the native handoff frames never transform surfaces
+    // (see prepareSurfaceRenderData); the overlay chrome keeps owning those borders.
+    const bool handoffFrame = (usesDirectNiriScrollingOverview(m_state) || niriModeAppliesToState(m_state)) && (m_deactivatePending || directNiriNativeHandoffActive());
+    if (m_stripSnapshotRenderDepth > 0 || m_stripPreviewContext.active || m_layerSnapshotCaptureLayer || handoffFrame)
+        return;
+
+    // Hyprland's decoration pass runs in window order, below top/overlay layers.
+    // Queue the border here (at the preview rect) instead of painting it in the
+    // overlay chrome, which sits above everything.
+    queueNativeWindowBorder(m_state, *managed, monitor, alpha);
 }
 
 void OverviewController::shadowDrawHook(void* shadowDecorationThisptr, const PHLMONITOR& monitor, const float& alpha) {
@@ -16016,30 +16027,68 @@ std::vector<const OverviewController::ManagedWindow*> OverviewController::direct
     return ordered;
 }
 
-void OverviewController::queueStackedSwapBorder(const State& state, const ManagedWindow& managed, const PHLMONITOR& renderMonitor) const {
-    if (!usesStackedSwapBorder(state, managed, renderMonitor))
+bool OverviewController::windowBorderDrawnNatively(const PHLWINDOW& window) const {
+    return window && m_nativeBorderWindows.contains(window.get());
+}
+
+void OverviewController::queueNativeWindowBorder(const State& state, const ManagedWindow& managed, const PHLMONITOR& renderMonitor, float decorationAlpha) const {
+    const auto& window = managed.window;
+    if (!window || !renderMonitor)
         return;
 
-    const auto* focusedManaged = focusedManagedForBorder(state, renderMonitor);
-    const bool  focused = focusedManaged && managed.window == focusedManaged->window;
-    const double configuredWidth = focused ? activeBorderWidth() : inactiveBorderWidth();
-    if (configuredWidth <= 0.0)
+    const int borderSize = window->getRealBorderSize();
+    if (borderSize <= 0)
         return;
 
-    const double thickness = focused ? std::max(1.0, configuredWidth - focusedBorderThicknessReduction()) : configuredWidth;
-    const CBox   box = toBox(rectToMonitorRenderLocal(managedWindowBorderRect(managed, renderMonitor, false), renderMonitor)).round();
+    const CBox box = toBox(rectToMonitorRenderLocal(managedWindowBorderRect(managed, renderMonitor, false), renderMonitor)).round();
     if (box.width <= 0.0 || box.height <= 0.0)
         return;
 
     CBorderPassElement::SBorderData data;
     data.box = box;
-    data.grad1 = focused ? activeBorderGradient() : inactiveBorderGradient();
+    data.grad1 = window->m_realBorderColor;
     data.round = managedWindowBorderRound(managed, renderMonitor);
     data.roundingPower = managedWindowBorderRoundingPower(managed);
-    data.a = 0.95F;
-    data.borderSize = std::max(1, static_cast<int>(std::lround(thickness)));
+    data.a = managedPreviewAlphaFor(window, decorationAlpha);
+    data.borderSize = borderSize;
     data.outerRound = overviewBorderOuterRounding(data.round, data.roundingPower, data.borderSize, renderScaleForMonitor(renderMonitor));
-    data.window = managed.window;
+    data.window = window;
+
+    // Same colour/fade/angle handling as CHyprBorderDecoration::draw.
+    const bool animated = window->m_borderFadeAnimationProgress && window->m_borderFadeAnimationProgress->isBeingAnimated();
+    if (window->m_borderAngleAnimationProgress && window->m_borderAngleAnimationProgress->enabled()) {
+        data.grad1.m_angle = std::fmod(data.grad1.m_angle + window->m_borderAngleAnimationProgress->value() * static_cast<float>(M_PI) * 2.F,
+                                       static_cast<float>(M_PI) * 2.F);
+        // Sync angles so the fade does not also rotate between them.
+        if (animated)
+            window->m_realBorderColorPrevious.m_angle = data.grad1.m_angle;
+    }
+    if (animated) {
+        data.hasGrad2 = true;
+        data.grad2 = data.grad1;
+        data.grad1 = window->m_realBorderColorPrevious;
+        data.lerp = window->m_borderFadeAnimationProgress->value();
+    }
+
+    // The overview selection can lead Hyprland's real focus; keep the active
+    // colour on the selected window until the two agree.
+    const auto* focusedManaged = focusedManagedForBorder(state, renderMonitor);
+    const auto  realFocus = Desktop::focusState()->window();
+    const bool  selectionLeadsFocus = focusedManaged && focusedManaged->window != realFocus;
+    switch (borderGradientSource(selectionLeadsFocus, selectionLeadsFocus && focusedManaged->window == window, window == realFocus)) {
+        case BorderGradientSource::ForceActive:
+            data.grad1 = activeBorderGradient();
+            data.hasGrad2 = false;
+            break;
+        case BorderGradientSource::ForceInactive:
+            data.grad1 = inactiveBorderGradient();
+            data.hasGrad2 = false;
+            break;
+        case BorderGradientSource::Native:
+            break;
+    }
+
+    m_nativeBorderWindows.insert(window.get());
     g_pHyprRenderer->m_renderPass.add(makeUnique<CBorderPassElement>(data));
 }
 
@@ -16063,7 +16112,7 @@ void OverviewController::renderInactiveWindowBorders(const State& state, double 
             continue;
         if (focusedManaged && managed.window == focusedManaged->window)
             continue;
-        if (usesStackedSwapBorder(state, managed, renderMonitor))
+        if (windowBorderDrawnNatively(managed.window))
             continue;
 
         renderOutline(managedWindowBorderRect(managed, renderMonitor, useTargetGeometry), inactiveGradient, thickness, 0.95 * progress,
@@ -16088,7 +16137,7 @@ void OverviewController::renderFocusedWindowBorder(const State& state, double pr
     const auto* focusedManaged = focusedManagedForBorder(state, renderMonitor);
     if (!focusedManaged)
         return;
-    if (usesStackedSwapBorder(state, *focusedManaged, renderMonitor))
+    if (windowBorderDrawnNatively(focusedManaged->window))
         return;
 
     renderOutline(managedWindowBorderRect(*focusedManaged, renderMonitor, useTargetGeometry), activeBorderGradient(), thickness, 0.95 * progress,

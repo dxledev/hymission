@@ -19,6 +19,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <unordered_set>
 #include <vector>
 
 #include "hyprland_compat.hpp"
@@ -872,8 +873,9 @@ class OverviewController {
     [[nodiscard]] bool                          usesStackedSwapBorder(const State& state, const ManagedWindow& managed,
                                                                     const PHLMONITOR& renderMonitor) const;
     [[nodiscard]] std::vector<const ManagedWindow*> directNiriSurfaceOverlayOrder(const State& state, const PHLMONITOR& renderMonitor) const;
-    void                                        queueStackedSwapBorder(const State& state, const ManagedWindow& managed,
-                                                                      const PHLMONITOR& renderMonitor) const;
+    void                                        queueNativeWindowBorder(const State& state, const ManagedWindow& managed, const PHLMONITOR& renderMonitor,
+                                                                      float decorationAlpha) const;
+    [[nodiscard]] bool                          windowBorderDrawnNatively(const PHLWINDOW& window) const;
     void                                        renderInactiveWindowBorders(const State& state, double progress, bool useTargetGeometry) const;
     void                                        renderFocusedWindowBorder(const State& state, double progress, bool useTargetGeometry) const;
     [[nodiscard]] bool                          prepareSurfaceRenderData(void* surfacePassThisptr, const char* context, CSurfacePassElement::SRenderData*& renderData,
@@ -1180,6 +1182,8 @@ class OverviewController {
     PHLANIMVAR<float>         m_relayoutProgressAnimation;
     bool                      m_relayoutFillsWindowSurface = false;
     bool                      m_relayoutStacksWindowBorders = false;
+    // Windows whose border was queued from Hyprland's own decoration pass this frame; the overlay chrome must not draw them again.
+    mutable std::unordered_set<const void*> m_nativeBorderWindows;
     PHLANIMVAR<float>         m_overviewVisibilityAnimation;
     SP<Hyprutils::Animation::SAnimationPropertyConfig> m_overviewVisibilityAnimationConfig;
     PHLANIMVAR<float>         m_workspaceTransitionAnimation;

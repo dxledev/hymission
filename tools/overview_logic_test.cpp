@@ -731,5 +731,12 @@ int main() {
     ok &= expect(closeEnough(niriInactivePreviewOverlayAlpha(1.7F, 1.0), 1.0, 1e-6) && closeEnough(niriInactivePreviewOverlayAlpha(-1.0F, 1.0), 0.0, 1e-6),
                  "inactive overlay alpha should be clamped to [0, 1]");
 
+    // Borders come from Hyprland's decoration pass; only override its colour while
+    // the overview selection and real focus disagree.
+    ok &= expect(borderGradientSource(false, false, true) == BorderGradientSource::Native, "native border colour when selection matches focus");
+    ok &= expect(borderGradientSource(true, true, false) == BorderGradientSource::ForceActive, "selected window gets the active colour while focus lags");
+    ok &= expect(borderGradientSource(true, false, true) == BorderGradientSource::ForceInactive, "stale focused window gets the inactive colour while focus lags");
+    ok &= expect(borderGradientSource(true, false, false) == BorderGradientSource::Native, "unrelated windows keep their native colour while focus lags");
+
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
