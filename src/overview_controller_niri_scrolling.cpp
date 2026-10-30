@@ -4139,6 +4139,8 @@ bool OverviewController::applyNiriScrollingCameraExitGeometry(const EmptyWorkspa
         return current.targetGlobal;
     };
 
+    const bool useStableExitPreview = (m_beginCloseInProgress || m_state.phase == Phase::Closing || m_state.phase == Phase::ClosingSettle);
+
     const Rect selectedPreview = currentPlaceholderRect(placeholder);
     const Rect selectedExit = placeholder.naturalGlobal;
     if (selectedPreview.width <= 1.0 || selectedPreview.height <= 1.0 || selectedExit.width <= 1.0 || selectedExit.height <= 1.0)
@@ -4167,7 +4169,10 @@ bool OverviewController::applyNiriScrollingCameraExitGeometry(const EmptyWorkspa
             continue;
         }
 
-        const Rect preview = currentPreviewRect(managed);
+        // selectedPreview is the placeholder's final overview rect, so measure the
+        // windows from their final rects too while closing; mixing in their current
+        // (mid-open) rects flings adjacent windows when an open is cancelled early.
+        const Rect preview = useStableExitPreview ? managed.targetGlobal : currentPreviewRect(managed);
         managed.exitGlobal = makeRect(selectedExit.centerX() + (preview.centerX() - selectedPreview.centerX()) * scaleX - preview.width * scaleX * 0.5,
                                       selectedExit.centerY() + (preview.centerY() - selectedPreview.centerY()) * scaleY - preview.height * scaleY * 0.5,
                                       preview.width * scaleX, preview.height * scaleY);
