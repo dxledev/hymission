@@ -4039,6 +4039,16 @@ bool OverviewController::applyNiriScrollingCameraExitGeometry(const PHLWINDOW& w
         managed.exitGlobal = makeRect(selectedExit.centerX() + (preview.centerX() - selectedPreview.centerX()) * scaleX - preview.width * scaleX * 0.5,
                                       selectedExit.centerY() + (preview.centerY() - selectedPreview.centerY()) * scaleY - preview.height * scaleY * 0.5,
                                       preview.width * scaleX, preview.height * scaleY);
+
+        // Same as the open camera: the synthesized rect assumes uniform column
+        // spacing. Land windows of the focused workspace on the rect Hyprland
+        // will actually draw them at, so the close/cancel handoff does not jump.
+        if (!managed.window->m_pinned && !managed.isNiriFloatingOverlay && managed.window->m_workspace == window->m_workspace) {
+            const Rect goal = goalGlobalRectForWindow(managed.window);
+            if (goal.width > 1.0 && goal.height > 1.0 && std::abs(goal.width - managed.exitGlobal.width) <= 4.0 &&
+                std::abs(goal.height - managed.exitGlobal.height) <= 4.0)
+                managed.exitGlobal = goal;
+        }
     }
 
     const auto currentPlaceholderRect = [&](const EmptyWorkspacePlaceholder& placeholder) {
