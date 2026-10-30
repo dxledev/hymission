@@ -97,6 +97,19 @@ struct WorkspaceStripReservation {
                                                                         GestureAxis axis, double distance, double delta, int step,
                                                                         bool pinned = false);
 [[nodiscard]] int                        scaledOverviewRounding(double logicalRounding, double monitorScale, double previewScale);
+
+// Direct-niri exit camera. `selectedPreview` is the item the camera is anchored
+// on (its final overview rect) and `selectedExit` is where that item lands on
+// close; every other rect is mapped through the same scale/translation.
+// While closing, other items must be measured from their final overview rects
+// too: mixing in their current mid-open rects flings them on an early cancel.
+[[nodiscard]] Rect                       niriExitPreviewRect(bool closing, const Rect& targetRect, const Rect& currentRect);
+[[nodiscard]] Rect                       niriCameraExitRect(const Rect& preview, const Rect& selectedPreview, const Rect& selectedExit);
+
+// Live surface overlay alpha for direct-niri previews on inactive workspaces.
+// The native pass never fades these windows with the zoom, so the overlay must
+// not either (gesture-driven and cancelled opens otherwise make them blink out).
+[[nodiscard]] float                      niriInactivePreviewOverlayAlpha(float previewAlpha, double overviewProgress);
 [[nodiscard]] int                        overviewBorderOuterRounding(int rounding, float roundingPower, int borderSize, double monitorScale);
 [[nodiscard]] int64_t                    authoritativeOverviewWorkspaceId(bool transitionActive, int64_t transitionTargetId, int64_t committedWorkspaceId);
 [[nodiscard]] double                     easeOutCubic(double t);

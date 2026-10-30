@@ -694,5 +694,42 @@ int main() {
 
     ok &= expect(hitTestWorkspaceStrip(topSlots, 120, 10) == std::optional<std::size_t>{1}, "strip hit-test should find the matching slot");
     ok &= expect(!hitTestWorkspaceStrip(topSlots, 100, 10).has_value(), "strip hit-test should miss strip gaps");
+    // Regression: cancelling an open early from an empty workspace flung the
+    // adjacent workspaces' windows because the exit camera mixed the placeholder's
+    // final rect with the windows' mid-open rects.
+    {
+        const Rect placeholderTarget{100, 400, 600, 340};
+        const Rect placeholderExit{0, 0, 2048, 1152};
+        const Rect adjacentTarget{100, 60, 600, 340};
+        const Rect adjacentMidOpen{40, -200, 900, 500};
+        ok &= expectRect(niriExitPreviewRect(true, adjacentTarget, adjacentMidOpen), adjacentTarget,
+                         "closing exit camera should measure windows from their final overview rect, not the mid-open rect");
+        ok &= expectRect(niriExitPreviewRect(false, adjacentTarget, adjacentMidOpen), adjacentMidOpen,
+                         "non-closing exit camera should keep using the current preview rect");
+
+        const Rect cancelEarly = niriCameraExitRect(niriExitPreviewRect(true, adjacentTarget, adjacentMidOpen), placeholderTarget, placeholderExit);
+        const Rect cancelLate = niriCameraExitRect(niriExitPreviewRect(true, adjacentTarget, adjacentTarget), placeholderTarget, placeholderExit);
+        ok &= expectRect(cancelEarly, cancelLate, "early and late cancels must send adjacent windows to the same exit rect");
+
+        const double scaleX = placeholderExit.width / placeholderTarget.width;
+        const double scaleY = placeholderExit.height / placeholderTarget.height;
+        ok &= expectRect(niriCameraExitRect(placeholderTarget, placeholderTarget, placeholderExit), placeholderExit,
+                         "the anchored item must land exactly on its exit rect");
+        ok &= expectRect(cancelLate,
+                         {placeholderExit.centerX() + (adjacentTarget.centerX() - placeholderTarget.centerX()) * scaleX - adjacentTarget.width * scaleX * 0.5,
+                          placeholderExit.centerY() + (adjacentTarget.centerY() - placeholderTarget.centerY()) * scaleY - adjacentTarget.height * scaleY * 0.5,
+                          adjacentTarget.width * scaleX, adjacentTarget.height * scaleY},
+                         "other items should map through the anchored item's scale and translation");
+    }
+
+    // Regression: neighbouring-workspace live overlays blinked out at the start of
+    // an open and when a gesture/open was cancelled, because their alpha followed
+    // the zoom progress while the native pass never fades them.
+    ok &= expect(closeEnough(niriInactivePreviewOverlayAlpha(1.0F, 0.0), 1.0, 1e-6), "inactive overlay must be fully opaque at the start of the zoom");
+    ok &= expect(closeEnough(niriInactivePreviewOverlayAlpha(1.0F, 0.81), 1.0, 1e-6), "inactive overlay must not fade while a zoom is cancelled");
+    ok &= expect(closeEnough(niriInactivePreviewOverlayAlpha(0.5F, 0.2), 0.5, 1e-6), "inactive overlay should still honour the window's own alpha");
+    ok &= expect(closeEnough(niriInactivePreviewOverlayAlpha(1.7F, 1.0), 1.0, 1e-6) && closeEnough(niriInactivePreviewOverlayAlpha(-1.0F, 1.0), 0.0, 1e-6),
+                 "inactive overlay alpha should be clamped to [0, 1]");
+
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

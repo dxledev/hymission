@@ -15774,11 +15774,8 @@ void OverviewController::renderSelectionChrome() const {
             }
 
             // Windows on neighboring workspaces are not faded by the native pass, so
-            // the overlay must not fade with the zoom either: gesture-driven or
-            // cancelled opens (progress < 1 while still opening or reversing)
-            // otherwise make them blink out, as the close path used to.
-            const float overviewAlpha = 1.0F;
-            const float alpha = std::clamp(managedPreviewAlphaFor(window, managed.previewAlpha), 0.0F, 1.0F) * overviewAlpha;
+            // the overlay must not fade with the zoom either (see the helper).
+            const float alpha = niriInactivePreviewOverlayAlpha(managedPreviewAlphaFor(window, managed.previewAlpha), progress);
             if (alpha <= 0.001F) {
                 ++missing;
                 if (debugLogsEnabled() && s_directNiriSurfaceOverlayLogBudget > 0) {

@@ -82,6 +82,22 @@ bool matchesNamespacePattern(std::string_view namespaceValue, std::string_view p
     }
 }
 
+Rect niriExitPreviewRect(bool closing, const Rect& targetRect, const Rect& currentRect) {
+    return closing ? targetRect : currentRect;
+}
+
+Rect niriCameraExitRect(const Rect& preview, const Rect& selectedPreview, const Rect& selectedExit) {
+    const double scaleX = selectedExit.width / selectedPreview.width;
+    const double scaleY = selectedExit.height / selectedPreview.height;
+    return Rect{selectedExit.centerX() + (preview.centerX() - selectedPreview.centerX()) * scaleX - preview.width * scaleX * 0.5,
+                selectedExit.centerY() + (preview.centerY() - selectedPreview.centerY()) * scaleY - preview.height * scaleY * 0.5,
+                preview.width * scaleX, preview.height * scaleY};
+}
+
+float niriInactivePreviewOverlayAlpha(float previewAlpha, double /*overviewProgress*/) {
+    return previewAlpha < 0.0F ? 0.0F : (previewAlpha > 1.0F ? 1.0F : previewAlpha);
+}
+
 int scaledOverviewRounding(double logicalRounding, double monitorScale, double previewScale) {
     // Hyprland truncates the monitor-scaled radius before the surface pass.
     const int nativeRounding = std::max(0, static_cast<int>(logicalRounding * monitorScale));
