@@ -15706,8 +15706,10 @@ void OverviewController::renderSelectionChrome() const {
         });
     };
 
-    if (closingTargetsEmptyNiriWorkspaceOnMonitor())
-        return;
+    // Closing onto an empty workspace suppresses the selection/border chrome, but
+    // adjacent workspaces' windows are still drawn by the live surface overlay
+    // below; returning early here made them vanish for the whole zoom-in.
+    const bool emptyNiriExitOnMonitor = closingTargetsEmptyNiriWorkspaceOnMonitor();
 
     // Direct Niri workspace lanes are normal overview window previews, not the
     // optional top/side workspace-strip thumbnails.  If Hyprland's inactive
@@ -15771,7 +15773,11 @@ void OverviewController::renderSelectionChrome() const {
                 continue;
             }
 
-            const float overviewAlpha = directNiriCloseChrome ? 1.0F : static_cast<float>(std::clamp(progress, 0.0, 1.0));
+            // Windows on neighboring workspaces are not faded by the native pass, so
+            // fading them in with the zoom makes them blink at the start of an
+            // open just as the close path used to make them vanish.
+            const bool directNiriOpening = m_state.phase == Phase::Opening && m_state.collectionPolicy.onlyActiveWorkspace;
+            const float overviewAlpha = (directNiriCloseChrome || directNiriOpening) ? 1.0F : static_cast<float>(std::clamp(progress, 0.0, 1.0));
             const float alpha = std::clamp(managedPreviewAlphaFor(window, managed.previewAlpha), 0.0F, 1.0F) * overviewAlpha;
             if (alpha <= 0.001F) {
                 ++missing;
@@ -15842,6 +15848,9 @@ void OverviewController::renderSelectionChrome() const {
             --s_directNiriSurfaceOverlayLogBudget;
         }
     }
+
+    if (emptyNiriExitOnMonitor)
+        return;
 
     const bool showFocusIndicator = !directNiriCloseChrome && showFocusIndicatorEnabled();
 
