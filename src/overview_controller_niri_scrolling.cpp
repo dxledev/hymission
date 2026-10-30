@@ -4227,6 +4227,17 @@ bool OverviewController::applyNiriScrollingCameraOpenGeometry(const PHLWINDOW& w
         managed.naturalGlobal = makeRect(selectedStart.centerX() + (target.centerX() - selectedTarget.centerX()) * scaleX - target.width * scaleX * 0.5,
                                          selectedStart.centerY() + (target.centerY() - selectedTarget.centerY()) * scaleY - target.height * scaleY * 0.5,
                                          target.width * scaleX, target.height * scaleY);
+
+        // The synthesized camera rect assumes uniform column spacing, but real
+        // scrolling windows carry asymmetric gap/border insets. For windows on the
+        // visible workspace start from the rect they are actually drawn at, so
+        // they do not jump a few pixels on the first frame and re-settle later.
+        if (!managed.window->m_pinned && managed.window->m_workspace == window->m_workspace) {
+            const Rect live = liveGlobalRectForWindow(managed.window);
+            if (live.width > 1.0 && live.height > 1.0 && rectApproxEqual(live, goalGlobalRectForWindow(managed.window), 0.5) &&
+                std::abs(live.width - managed.naturalGlobal.width) <= 4.0 && std::abs(live.height - managed.naturalGlobal.height) <= 4.0)
+                managed.naturalGlobal = live;
+        }
         managed.exitGlobal = managed.naturalGlobal;
     }
 
