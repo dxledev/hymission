@@ -4376,27 +4376,25 @@ void OverviewController::renderStage(eRenderStage stage) {
         m_nativeBorderWindows.clear();
 
     if (stage == RENDER_PRE && debugLogsEnabled() && g_commitTraceUntil > std::chrono::steady_clock::now()) {
-        static int traceBudget = 0;
+        static std::map<const void*, std::string> lastSeen;
         if (g_commitTraceReset) {
-            traceBudget = 400;
+            lastSeen.clear();
             g_commitTraceReset = false;
         }
-        if (traceBudget > 0) {
-            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_commitTraceStart).count();
-            for (const auto& managed : m_state.windows) {
-                const auto& w = managed.window;
-                if (!w)
-                    continue;
-                --traceBudget;
-                std::ostringstream out;
-                const Rect live = liveGlobalRectForWindow(w);
-                const Rect goal = goalGlobalRectForWindow(w);
-                out << "[hymission] commit-trace t=" << ms << "ms " << debugWindowLabel(w)
-                    << " live=" << rectToString(live) << " goal=" << rectToString(goal)
-                    << " liveEqGoal=" << (rectApproxEqual(live, goal, 0.5) ? 1 : 0)
-                    << " target=" << rectToString(managed.targetGlobal)
-                    << " relayout=" << (m_state.relayoutActive ? 1 : 0);
-                debugLog(out.str());
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_commitTraceStart).count();
+        for (const auto& managed : m_state.windows) {
+            const auto& w = managed.window;
+            if (!w)
+                continue;
+            std::ostringstream out;
+            out << debugWindowLabel(w).substr(0, 28)
+                << " live=" << rectToString(liveGlobalRectForWindow(w)) << " goal=" << rectToString(goalGlobalRectForWindow(w))
+                << " preview=" << rectToString(currentPreviewRect(managed)) << " target=" << rectToString(managed.targetGlobal)
+                << " relayout=" << (m_state.relayoutActive ? 1 : 0) << " alpha=" << managed.previewAlpha;
+            auto& last = lastSeen[w.get()];
+            if (last != out.str()) {
+                last = out.str();
+                debugLog("[hymission] commit-trace t=" + std::to_string(ms) + "ms " + out.str());
             }
         }
     }
@@ -8918,7 +8916,7 @@ void OverviewController::commitOverviewWorkspaceTransition(bool followGesture, b
         setAnimationsEnabledOverride(false);
 
     g_commitTraceStart = std::chrono::steady_clock::now();
-    g_commitTraceUntil = g_commitTraceStart + std::chrono::milliseconds(1800);
+    g_commitTraceUntil = g_commitTraceStart + std::chrono::milliseconds(3500);
     g_commitTraceReset = true;
 
     if (debugLogsEnabled()) {
@@ -16972,6 +16970,9 @@ void OverviewController::refreshWorkspaceStripSnapshots() {
     }
 
     m_stripSnapshotsDirty = false;
+    if (debugLogsEnabled() && g_commitTraceUntil > std::chrono::steady_clock::now())
+        debugLog("[hymission] commit-trace strip snapshot refresh t=" +
+                 std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_commitTraceStart).count()) + "ms");
     for (auto& entry : m_state.stripEntries)
         renderWorkspaceStripSnapshot(entry);
 
