@@ -737,8 +737,6 @@ int main() {
     ok &= expect(borderGradientSource(true, true, false) == BorderGradientSource::ForceActive, "selected window gets the active colour while focus lags");
     ok &= expect(borderGradientSource(true, false, true) == BorderGradientSource::ForceInactive, "stale focused window gets the inactive colour while focus lags");
     ok &= expect(borderGradientSource(true, false, false) == BorderGradientSource::Native, "unrelated windows keep their native colour while focus lags");
-    ok &= expect(borderGradientSource(false, false, false, true) == BorderGradientSource::ForceInactive, "non-focused windows get the flat inactive colour while a workspace switch settles");
-    ok &= expect(borderGradientSource(true, true, false, true) == BorderGradientSource::ForceActive, "selected window keeps the active colour while a workspace switch settles");
 
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

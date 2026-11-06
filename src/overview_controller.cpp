@@ -16135,7 +16135,7 @@ void OverviewController::queueNativeWindowBorder(const State& state, const Manag
     const auto* focusedManaged = focusedManagedForBorder(state, renderMonitor);
     const auto  realFocus = Desktop::focusState()->window();
     const bool  selectionLeadsFocus = focusedManaged && focusedManaged->window != realFocus;
-    switch (borderGradientSource(selectionLeadsFocus, focusedManaged && focusedManaged->window == window, window == realFocus, borderXitionLogWindow(m_workspaceTransition.active))) {
+    switch (borderGradientSource(selectionLeadsFocus, focusedManaged && focusedManaged->window == window, window == realFocus)) {
         case BorderGradientSource::ForceActive:
             data.grad1 = activeBorderGradient();
             data.hasGrad2 = false;
@@ -16166,9 +16166,11 @@ void OverviewController::queueNativeWindowBorder(const State& state, const Manag
         }
     }
 
-    // A/B experiment: while a workspace switch settles, let the overlay draw
-    // non-focused borders instead of the native pass.
-    if (borderXitionLogWindow(m_workspaceTransition.active) && !(focusedManaged && focusedManaged->window == window))
+    // Only the focused window uses the native border pass.  Inactive borders are
+    // always drawn by the overlay: the native element fades from the previous
+    // border colour over ~1s after a workspace switch, which showed up as a late
+    // inactive border.
+    if (!(focusedManaged && focusedManaged->window == window))
         return;
 
     m_nativeBorderWindows.insert(window.get());
