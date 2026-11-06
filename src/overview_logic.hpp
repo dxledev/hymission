@@ -112,7 +112,7 @@ struct WorkspaceStripReservation {
 // The native pass never fades these windows with the zoom, so the overlay must
 // not either (gesture-driven and cancelled opens otherwise make them blink out).
 [[nodiscard]] float                      niriInactivePreviewOverlayAlpha(float previewAlpha, double overviewProgress);
-[[nodiscard]] BorderGradientSource       borderGradientSource(bool selectionLeadsRealFocus, bool windowIsSelected, bool windowIsRealFocus);
+[[nodiscard]] BorderGradientSource       borderGradientSource(bool selectionLeadsRealFocus, bool windowIsSelected, bool windowIsRealFocus, bool workspaceSwitchSettling = false);
 [[nodiscard]] int                        overviewBorderOuterRounding(int rounding, float roundingPower, int borderSize, double monitorScale);
 [[nodiscard]] int64_t                    authoritativeOverviewWorkspaceId(bool transitionActive, int64_t transitionTargetId, int64_t committedWorkspaceId);
 [[nodiscard]] double                     easeOutCubic(double t);

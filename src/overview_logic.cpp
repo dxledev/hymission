@@ -94,7 +94,9 @@ Rect niriCameraExitRect(const Rect& preview, const Rect& selectedPreview, const 
                 preview.width * scaleX, preview.height * scaleY};
 }
 
-BorderGradientSource borderGradientSource(bool selectionLeadsRealFocus, bool windowIsSelected, bool windowIsRealFocus) {
+BorderGradientSource borderGradientSource(bool selectionLeadsRealFocus, bool windowIsSelected, bool windowIsRealFocus, bool workspaceSwitchSettling) {
+    if (workspaceSwitchSettling)
+        return windowIsSelected ? BorderGradientSource::ForceActive : BorderGradientSource::ForceInactive;
     if (!selectionLeadsRealFocus)
         return BorderGradientSource::Native;
     if (windowIsSelected)

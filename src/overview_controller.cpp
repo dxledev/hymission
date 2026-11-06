@@ -16085,7 +16085,7 @@ void OverviewController::queueNativeWindowBorder(const State& state, const Manag
     const auto* focusedManaged = focusedManagedForBorder(state, renderMonitor);
     const auto  realFocus = Desktop::focusState()->window();
     const bool  selectionLeadsFocus = focusedManaged && focusedManaged->window != realFocus;
-    switch (borderGradientSource(selectionLeadsFocus, selectionLeadsFocus && focusedManaged->window == window, window == realFocus)) {
+    switch (borderGradientSource(selectionLeadsFocus, focusedManaged && focusedManaged->window == window, window == realFocus, borderXitionLogWindow(m_workspaceTransition.active))) {
         case BorderGradientSource::ForceActive:
             data.grad1 = activeBorderGradient();
             data.hasGrad2 = false;
