@@ -9308,6 +9308,9 @@ void OverviewController::commitActiveNiriWorkspaceTransitionForRetarget() {
 
         managed.relayoutFromGlobal = previous->second;
         windowRelayoutChanged = windowRelayoutChanged || !rectApproxEqual(managed.relayoutFromGlobal, managed.targetGlobal, 0.5);
+        if (debugLogsEnabled())
+            debugLog("[hymission] retarget-delta " + debugWindowLabel(managed.window).substr(0, 28) + " from=" + rectToString(managed.relayoutFromGlobal) +
+                     " to=" + rectToString(managed.targetGlobal));
     }
 
     const bool preservedRelayout = windowRelayoutChanged || m_state.relayoutActive;
@@ -11759,6 +11762,19 @@ bool OverviewController::prepareSurfaceRenderData(void* surfacePassThisptr, cons
         renderData->alpha = m_surfaceRenderAlphaOverride ? *m_surfaceRenderAlphaOverride : managedPreviewAlphaFor(renderData->pWindow, snapshot.alpha);
         if (!hyprland_compat::windowIsFadingOut(renderData->pWindow))
             renderData->fadeAlpha = 1.0F;
+    }
+
+    if (transformed && renderData->mainSurface && debugLogsEnabled() && g_commitTraceUntil > std::chrono::steady_clock::now()) {
+        static std::map<const void*, std::string> lastDraw;
+        std::ostringstream out;
+        out << debugWindowLabel(renderData->pWindow).substr(0, 28) << " srcPos=" << vectorToString(snapshot.pos) << " srcSize=" << snapshot.w << 'x' << snapshot.h
+            << " -> pos=" << vectorToString(renderData->pos) << " size=" << renderData->w << 'x' << renderData->h << " clip=" << boxToString(renderData->clipBox);
+        auto& last = lastDraw[renderData->pWindow.get()];
+        if (last != out.str()) {
+            last = out.str();
+            debugLog("[hymission] commit-trace draw t=" +
+                     std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_commitTraceStart).count()) + "ms " + out.str());
+        }
     }
 
     if (transformed && debugSurfaceLogsEnabled()) {
