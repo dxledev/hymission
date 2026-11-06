@@ -16094,7 +16094,7 @@ void OverviewController::queueNativeWindowBorder(const State& state, const Manag
             --s_borderTransitionLogBudget;
             const bool isFocusedManaged = focusedManaged && focusedManaged->window == window;
             std::ostringstream out;
-            out << "[hymission] border-xition native window=" << debugWindowLabel(window)
+            out << "[hymission] border-xition native t=" << (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() % 1000000) << " window=" << debugWindowLabel(window)
                 << " focusedManaged=" << (isFocusedManaged ? 1 : 0)
                 << " a=" << data.a << " decorationAlpha=" << decorationAlpha
                 << " animated=" << (animated ? 1 : 0) << " lerp=" << data.lerp << " hasGrad2=" << (data.hasGrad2 ? 1 : 0)
@@ -16125,27 +16125,35 @@ void OverviewController::renderInactiveWindowBorders(const State& state, double 
     const auto* focusedManaged = focusedManagedForBorder(state, renderMonitor);
     const auto inactiveGradient = inactiveBorderGradient();
 
+    std::size_t xitionNative = 0, xitionDrawn = 0;
     for (const auto& managed : state.windows) {
         if (!managed.window || managed.targetMonitor != renderMonitor)
             continue;
         if (focusedManaged && managed.window == focusedManaged->window)
             continue;
         const bool drawnNatively = windowBorderDrawnNatively(managed.window);
-        if (m_workspaceTransition.active && debugLogsEnabled()) {
-            static std::size_t s_inactiveOverlayLogBudget = 200;
-            if (s_inactiveOverlayLogBudget > 0) {
-                --s_inactiveOverlayLogBudget;
-                std::ostringstream out;
-                out << "[hymission] border-xition overlay-inactive window=" << debugWindowLabel(managed.window)
-                    << " progress=" << progress << " skippedNative=" << (drawnNatively ? 1 : 0);
-                debugLog(out.str());
-            }
-        }
+        if (drawnNatively)
+            ++xitionNative;
+        else
+            ++xitionDrawn;
         if (drawnNatively)
             continue;
 
         renderOutline(managedWindowBorderRect(managed, renderMonitor, useTargetGeometry), inactiveGradient, thickness, 0.95 * progress,
                       managedWindowBorderRound(managed, renderMonitor), managedWindowBorderRoundingPower(managed));
+    }
+
+    if (m_workspaceTransition.active && debugLogsEnabled()) {
+        static std::size_t s_summaryBudget = 600;
+        if (s_summaryBudget > 0) {
+            --s_summaryBudget;
+            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() % 1000000;
+            std::ostringstream out;
+            out << "[hymission] border-xition summary t=" << ms << " ws=" << (state.ownerWorkspace ? state.ownerWorkspace->m_id : -1)
+                << " windows=" << state.windows.size() << " overlayDrawn=" << xitionDrawn << " skippedNative=" << xitionNative << " progress=" << progress
+                << " animProgress=" << m_workspaceTransition.animationProgress;
+            debugLog(out.str());
+        }
     }
 }
 
