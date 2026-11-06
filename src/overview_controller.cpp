@@ -4357,6 +4357,12 @@ SDispatchResult OverviewController::debugCurrentLayout() const {
     return {};
 }
 
+namespace {
+std::chrono::steady_clock::time_point g_commitTraceUntil{};
+std::chrono::steady_clock::time_point g_commitTraceStart{};
+bool g_commitTraceReset = false;
+}
+
 void OverviewController::renderStage(eRenderStage stage) {
     if (stage == RENDER_POST && m_surfaceFeedbackOverrideActive) {
         g_pHyprRenderer->m_bBlockSurfaceFeedback = m_surfaceFeedbackOverrideBackup;
@@ -4368,6 +4374,32 @@ void OverviewController::renderStage(eRenderStage stage) {
 
     if (stage == RENDER_PRE)
         m_nativeBorderWindows.clear();
+
+    if (stage == RENDER_PRE && debugLogsEnabled() && g_commitTraceUntil > std::chrono::steady_clock::now()) {
+        static int traceBudget = 0;
+        if (g_commitTraceReset) {
+            traceBudget = 400;
+            g_commitTraceReset = false;
+        }
+        if (traceBudget > 0) {
+            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_commitTraceStart).count();
+            for (const auto& managed : m_state.windows) {
+                const auto& w = managed.window;
+                if (!w)
+                    continue;
+                --traceBudget;
+                std::ostringstream out;
+                const Rect live = liveGlobalRectForWindow(w);
+                const Rect goal = goalGlobalRectForWindow(w);
+                out << "[hymission] commit-trace t=" << ms << "ms " << debugWindowLabel(w)
+                    << " live=" << rectToString(live) << " goal=" << rectToString(goal)
+                    << " liveEqGoal=" << (rectApproxEqual(live, goal, 0.5) ? 1 : 0)
+                    << " target=" << rectToString(managed.targetGlobal)
+                    << " relayout=" << (m_state.relayoutActive ? 1 : 0);
+                debugLog(out.str());
+            }
+        }
+    }
 
     // The overview wallpaper proxy is drawn at a different scale/position than the
     // native wallpaper, so Hyprland's cached pre-blur would go stale.  Hyprland reads
@@ -8884,6 +8916,10 @@ void OverviewController::commitOverviewWorkspaceTransition(bool followGesture, b
 
     if (temporarilyDisabledAnimations)
         setAnimationsEnabledOverride(false);
+
+    g_commitTraceStart = std::chrono::steady_clock::now();
+    g_commitTraceUntil = g_commitTraceStart + std::chrono::milliseconds(1800);
+    g_commitTraceReset = true;
 
     if (debugLogsEnabled()) {
         std::ostringstream out;
