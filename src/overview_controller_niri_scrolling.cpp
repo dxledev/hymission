@@ -7590,12 +7590,12 @@ bool OverviewController::removeOccupiedWorkspacePlaceholder(State& state, const 
 // returning live geometry during a protected transition causes one-frame flashes
 // from the old workspace.
 Rect OverviewController::currentPreviewRect(const ManagedWindow& window) const {
-    if (m_workspaceTransition.active) {
+    if (m_workspaceTransition.active && !m_previewRectIgnoreTransition) {
         if (const auto rect = workspaceTransitionRectForWindow(window.window); rect)
             return *rect;
     }
 
-    if (m_gestureSession.active) {
+    if (m_gestureSession.active && !m_previewRectIgnoreTransition) {
         if (m_gestureSession.opening)
             return lerpRect(window.naturalGlobal, window.targetGlobal, visualProgress());
         return lerpRect(window.exitGlobal, window.targetGlobal, visualProgress());

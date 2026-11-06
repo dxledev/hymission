@@ -11868,7 +11868,26 @@ std::optional<Rect> OverviewController::workspaceTransitionRectForWindow(const P
         return std::nullopt;
 
     const std::optional<Rect> source = sourceManaged ? std::optional<Rect>{sourceManaged->targetGlobal} : std::nullopt;
-    const std::optional<Rect> target = targetManaged ? std::optional<Rect>{targetManaged->targetGlobal} : std::nullopt;
+    std::optional<Rect> target = targetManaged ? std::optional<Rect>{targetManaged->targetGlobal} : std::nullopt;
+    if (target && targetManaged->window && !targetManaged->isPinned && !m_previewRectIgnoreTransition) {
+        // The target state is built from snapshot geometry, while the steady preview
+        // (used right after the commit) maps live geometry.  Those differ by a pixel or
+        // two for half-width columns, which showed up as a settle after the slide ended.
+        // Finish the slide on the steady rect so nothing moves at the commit.
+        m_previewRectIgnoreTransition = true;
+        const Rect steady = currentPreviewRect(*targetManaged);
+        m_previewRectIgnoreTransition = false;
+        const bool accepted = steady.width > 1.0 && steady.height > 1.0 && std::abs(steady.x - target->x) < 8.0 && std::abs(steady.y - target->y) < 8.0 &&
+            std::abs(steady.width - target->width) < 8.0 && std::abs(steady.height - target->height) < 8.0;
+        static int s_steadyLogBudget = 400;
+        if (debugLogsEnabled() && s_steadyLogBudget > 0 && (std::abs(steady.x - target->x) > 0.01 || !accepted)) {
+            --s_steadyLogBudget;
+            debugLog("[hymission] commit-trace steady-target accepted=" + std::to_string(accepted ? 1 : 0) + " window=" + debugWindowLabel(window) +
+                     " stateTarget=" + rectToString(*target) + " steady=" + rectToString(steady));
+        }
+        if (accepted)
+            target = steady;
+    }
     const bool pinned = (sourceManaged && sourceManaged->isPinned) || (targetManaged && targetManaged->isPinned);
     const auto axis = m_workspaceTransition.axis == WorkspaceTransitionAxis::Vertical ? GestureAxis::Vertical : GestureAxis::Horizontal;
     return workspaceTransitionWindowRect(source, target, axis, m_workspaceTransition.distance, m_workspaceTransition.delta, m_workspaceTransition.step, pinned);

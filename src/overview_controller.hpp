@@ -1262,6 +1262,7 @@ class OverviewController {
     ScrollGestureSession      m_scrollGestureSession;
     WorkspaceSwipeGestureContext m_workspaceSwipeGesture;
     WorkspaceTransition      m_workspaceTransition;
+    mutable bool             m_previewRectIgnoreTransition = false;
     std::deque<WorkspaceTransitionRequest> m_pendingWorkspaceTransitionRequests;
     // Queued overview editing dispatchers (movefocus, movecol, swapcol) to run after
     // an active workspace transition commits. This ensures animations are independent
