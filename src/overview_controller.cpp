@@ -8167,18 +8167,6 @@ bool OverviewController::beginOverviewWorkspaceTransition(const PHLMONITOR& moni
         clearOverviewWorkspaceTransition();
         return false;
     }
-    if (activateTimedNiriTarget && !preferredTargetFocus && !m_workspaceTransition.targetEdgeCameraPreserved && m_workspaceTransition.targetActivatedEarly) {
-        // The target state above was built before the workspace became active, so
-        // its window rects come from the inactive-workspace layout snapshot (windows
-        // centred in their column boxes).  The state rebuilt at commit uses the live
-        // geometry, which differs by a few pixels and made multi-window workspaces
-        // visibly re-settle after the switch animation.  Rebuild against the
-        // activated workspace so both agree.
-        const auto resolvedFocus = m_workspaceTransition.targetState.focusDuringOverview;
-        if (resolvedFocus && resolvedFocus->m_isMapped && resolvedFocus->m_workspace && resolvedFocus->m_workspace->m_id == m_workspaceTransition.targetWorkspaceId)
-            (void)rebuildTimedNiriWorkspaceTransitionTarget(resolvedFocus);
-    }
-
     if (debugLogsEnabled()) {
         std::ostringstream out;
         out << "[hymission] overview workspace transition begin monitor=" << monitor->m_name << " targetId=" << workspaceId
@@ -8187,6 +8175,10 @@ bool OverviewController::beginOverviewWorkspaceTransition(const PHLMONITOR& moni
             << " axis=" << (m_workspaceTransition.axis == WorkspaceTransitionAxis::Vertical ? "vertical" : "horizontal");
         debugLog(out.str());
     }
+
+    g_commitTraceStart = std::chrono::steady_clock::now();
+    g_commitTraceUntil = g_commitTraceStart + std::chrono::milliseconds(6000);
+    g_commitTraceReset = true;
 
     damageOwnedMonitors();
     return true;
@@ -8926,9 +8918,9 @@ void OverviewController::commitOverviewWorkspaceTransition(bool followGesture, b
     if (temporarilyDisabledAnimations)
         setAnimationsEnabledOverride(false);
 
-    g_commitTraceStart = std::chrono::steady_clock::now();
-    g_commitTraceUntil = g_commitTraceStart + std::chrono::milliseconds(3500);
-    g_commitTraceReset = true;
+    if (debugLogsEnabled())
+        debugLog("[hymission] commit-trace COMMIT t=" +
+                 std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_commitTraceStart).count()) + "ms");
 
     if (debugLogsEnabled()) {
         std::ostringstream out;
@@ -11778,7 +11770,12 @@ bool OverviewController::prepareSurfaceRenderData(void* surfacePassThisptr, cons
     if (transformed && renderData->mainSurface && debugLogsEnabled() && g_commitTraceUntil > std::chrono::steady_clock::now()) {
         static std::map<const void*, std::string> lastDraw;
         std::ostringstream out;
-        out << debugWindowLabel(renderData->pWindow).substr(0, 28) << " srcPos=" << vectorToString(snapshot.pos) << " srcSize=" << snapshot.w << 'x' << snapshot.h
+        const auto tf = windowTransformFor(renderData->pWindow, monitor);
+        const bool inTransition = workspaceTransitionRectForWindow(renderData->pWindow).has_value();
+        out << debugWindowLabel(renderData->pWindow).substr(0, 20) << " xition=" << (m_workspaceTransition.active ? 1 : 0) << " viaTransitionRect=" << (inTransition ? 1 : 0)
+            << " actual=" << (tf ? rectToString(tf->actualGlobal) : std::string("-")) << " fitted=" << (tf ? rectToString(tf->targetGlobal) : std::string("-"))
+            << " origin=" << vectorToString(snapshot.pos + snapshot.localPos)
+            << " srcPos=" << vectorToString(snapshot.pos) << " srcSize=" << snapshot.w << 'x' << snapshot.h
             << " -> pos=" << vectorToString(renderData->pos) << " size=" << renderData->w << 'x' << renderData->h << " clip=" << boxToString(renderData->clipBox);
         auto& last = lastDraw[renderData->pWindow.get()];
         if (last != out.str()) {
