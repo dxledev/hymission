@@ -11877,16 +11877,24 @@ std::optional<Rect> OverviewController::workspaceTransitionRectForWindow(const P
         m_previewRectIgnoreTransition = true;
         const Rect steady = currentPreviewRect(*targetManaged);
         m_previewRectIgnoreTransition = false;
-        const bool accepted = steady.width > 1.0 && steady.height > 1.0 && std::abs(steady.x - target->x) < 8.0 && std::abs(steady.y - target->y) < 8.0 &&
-            std::abs(steady.width - target->width) < 8.0 && std::abs(steady.height - target->height) < 8.0;
-        static int s_steadyLogBudget = 400;
-        if (debugLogsEnabled() && s_steadyLogBudget > 0 && (std::abs(steady.x - target->x) > 0.01 || !accepted)) {
+        // The steady rect sits in the current lane while the target sits in the arriving
+        // lane, so only the component across the lane stacking axis is comparable.
+        const bool   lanesVertical = workspaceLanesStackVertically();
+        const double cross = lanesVertical ? steady.x - target->x : steady.y - target->y;
+        const bool   accepted = steady.width > 1.0 && steady.height > 1.0 && std::abs(cross) < 8.0 && std::abs(steady.width - target->width) < 8.0 &&
+            std::abs(steady.height - target->height) < 8.0;
+        static int s_steadyLogBudget = 200;
+        if (debugLogsEnabled() && s_steadyLogBudget > 0 && (std::abs(cross) > 0.01 || !accepted)) {
             --s_steadyLogBudget;
-            debugLog("[hymission] commit-trace steady-target accepted=" + std::to_string(accepted ? 1 : 0) + " window=" + debugWindowLabel(window) +
-                     " stateTarget=" + rectToString(*target) + " steady=" + rectToString(steady));
+            debugLog("[hymission] commit-trace steady-target accepted=" + std::to_string(accepted ? 1 : 0) + " cross=" + std::to_string(cross) +
+                     " window=" + debugWindowLabel(window) + " stateTarget=" + rectToString(*target) + " steady=" + rectToString(steady));
         }
-        if (accepted)
-            target = steady;
+        if (accepted) {
+            if (lanesVertical)
+                target->x = steady.x;
+            else
+                target->y = steady.y;
+        }
     }
     const bool pinned = (sourceManaged && sourceManaged->isPinned) || (targetManaged && targetManaged->isPinned);
     const auto axis = m_workspaceTransition.axis == WorkspaceTransitionAxis::Vertical ? GestureAxis::Vertical : GestureAxis::Horizontal;
