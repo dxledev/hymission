@@ -6001,6 +6001,16 @@ void OverviewController::renderLayerHook(void* rendererThisptr, PHLLS layer, PHL
     m_renderLayerOriginal(rendererThisptr, layer, monitor, now, popups, lockscreen);
 }
 
+namespace {
+bool borderXitionLogWindow(bool transitionActive) {
+    static std::chrono::steady_clock::time_point lastActive{};
+    const auto now = std::chrono::steady_clock::now();
+    if (transitionActive)
+        lastActive = now;
+    return lastActive.time_since_epoch().count() != 0 && now - lastActive < std::chrono::milliseconds(2500);
+}
+} // namespace
+
 void OverviewController::borderDrawHook(void* borderDecorationThisptr, const PHLMONITOR& monitor, const float& alpha) {
     if (!m_borderDrawOriginal) {
         return;
@@ -16088,8 +16098,8 @@ void OverviewController::queueNativeWindowBorder(const State& state, const Manag
             break;
     }
 
-    if (m_workspaceTransition.active && debugLogsEnabled()) {
-        static std::size_t s_borderTransitionLogBudget = 200;
+    if (debugLogsEnabled() && borderXitionLogWindow(m_workspaceTransition.active)) {
+        static std::size_t s_borderTransitionLogBudget = 600;
         if (s_borderTransitionLogBudget > 0) {
             --s_borderTransitionLogBudget;
             const bool isFocusedManaged = focusedManaged && focusedManaged->window == window;
@@ -16101,7 +16111,7 @@ void OverviewController::queueNativeWindowBorder(const State& state, const Manag
                 << " grad1Colors=" << data.grad1.m_colors.size()
                 << " grad1a=" << (data.grad1.m_colors.empty() ? -1.0F : data.grad1.m_colors.front().a)
                 << " grad2a=" << (data.hasGrad2 && !data.grad2.m_colors.empty() ? data.grad2.m_colors.front().a : -1.0F)
-                << " selLeadsFocus=" << (selectionLeadsFocus ? 1 : 0);
+                << " selLeadsFocus=" << (selectionLeadsFocus ? 1 : 0) << " xitionActive=" << (m_workspaceTransition.active ? 1 : 0);
             debugLog(out.str());
         }
     }
@@ -16143,15 +16153,15 @@ void OverviewController::renderInactiveWindowBorders(const State& state, double 
                       managedWindowBorderRound(managed, renderMonitor), managedWindowBorderRoundingPower(managed));
     }
 
-    if (m_workspaceTransition.active && debugLogsEnabled()) {
-        static std::size_t s_summaryBudget = 600;
+    if (debugLogsEnabled() && borderXitionLogWindow(m_workspaceTransition.active)) {
+        static std::size_t s_summaryBudget = 1500;
         if (s_summaryBudget > 0) {
             --s_summaryBudget;
             const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() % 1000000;
             std::ostringstream out;
             out << "[hymission] border-xition summary t=" << ms << " ws=" << (state.ownerWorkspace ? state.ownerWorkspace->m_id : -1)
                 << " windows=" << state.windows.size() << " overlayDrawn=" << xitionDrawn << " skippedNative=" << xitionNative << " progress=" << progress
-                << " animProgress=" << m_workspaceTransition.animationProgress;
+                << " animProgress=" << m_workspaceTransition.animationProgress << " xitionActive=" << (m_workspaceTransition.active ? 1 : 0);
             debugLog(out.str());
         }
     }
