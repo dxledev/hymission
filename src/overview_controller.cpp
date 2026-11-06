@@ -8167,6 +8167,17 @@ bool OverviewController::beginOverviewWorkspaceTransition(const PHLMONITOR& moni
         clearOverviewWorkspaceTransition();
         return false;
     }
+    if (activateTimedNiriTarget && !preferredTargetFocus && !m_workspaceTransition.targetEdgeCameraPreserved && m_workspaceTransition.targetActivatedEarly) {
+        // The target state above was built before the workspace became active, so
+        // its window rects come from the inactive-workspace layout snapshot (windows
+        // centred in their column boxes).  The state rebuilt at commit uses the live
+        // geometry, which differs by a few pixels and made multi-window workspaces
+        // visibly re-settle after the switch animation.  Rebuild against the
+        // activated workspace so both agree.
+        const auto resolvedFocus = m_workspaceTransition.targetState.focusDuringOverview;
+        if (resolvedFocus && resolvedFocus->m_isMapped && resolvedFocus->m_workspace && resolvedFocus->m_workspace->m_id == m_workspaceTransition.targetWorkspaceId)
+            (void)rebuildTimedNiriWorkspaceTransitionTarget(resolvedFocus);
+    }
 
     if (debugLogsEnabled()) {
         std::ostringstream out;
