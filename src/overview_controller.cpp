@@ -16116,6 +16116,11 @@ void OverviewController::queueNativeWindowBorder(const State& state, const Manag
         }
     }
 
+    // A/B experiment: while a workspace switch settles, let the overlay draw
+    // non-focused borders instead of the native pass.
+    if (borderXitionLogWindow(m_workspaceTransition.active) && !(focusedManaged && focusedManaged->window == window))
+        return;
+
     m_nativeBorderWindows.insert(window.get());
     g_pHyprRenderer->m_renderPass.add(makeUnique<CBorderPassElement>(data));
 }
