@@ -16088,6 +16088,24 @@ void OverviewController::queueNativeWindowBorder(const State& state, const Manag
             break;
     }
 
+    if (m_workspaceTransition.active && debugLogsEnabled()) {
+        static std::size_t s_borderTransitionLogBudget = 200;
+        if (s_borderTransitionLogBudget > 0) {
+            --s_borderTransitionLogBudget;
+            const bool isFocusedManaged = focusedManaged && focusedManaged->window == window;
+            std::ostringstream out;
+            out << "[hymission] border-xition native window=" << debugWindowLabel(window)
+                << " focusedManaged=" << (isFocusedManaged ? 1 : 0)
+                << " a=" << data.a << " decorationAlpha=" << decorationAlpha
+                << " animated=" << (animated ? 1 : 0) << " lerp=" << data.lerp << " hasGrad2=" << (data.hasGrad2 ? 1 : 0)
+                << " grad1Colors=" << data.grad1.m_colors.size()
+                << " grad1a=" << (data.grad1.m_colors.empty() ? -1.0F : data.grad1.m_colors.front().a)
+                << " grad2a=" << (data.hasGrad2 && !data.grad2.m_colors.empty() ? data.grad2.m_colors.front().a : -1.0F)
+                << " selLeadsFocus=" << (selectionLeadsFocus ? 1 : 0);
+            debugLog(out.str());
+        }
+    }
+
     m_nativeBorderWindows.insert(window.get());
     g_pHyprRenderer->m_renderPass.add(makeUnique<CBorderPassElement>(data));
 }
@@ -16112,7 +16130,18 @@ void OverviewController::renderInactiveWindowBorders(const State& state, double 
             continue;
         if (focusedManaged && managed.window == focusedManaged->window)
             continue;
-        if (windowBorderDrawnNatively(managed.window))
+        const bool drawnNatively = windowBorderDrawnNatively(managed.window);
+        if (m_workspaceTransition.active && debugLogsEnabled()) {
+            static std::size_t s_inactiveOverlayLogBudget = 200;
+            if (s_inactiveOverlayLogBudget > 0) {
+                --s_inactiveOverlayLogBudget;
+                std::ostringstream out;
+                out << "[hymission] border-xition overlay-inactive window=" << debugWindowLabel(managed.window)
+                    << " progress=" << progress << " skippedNative=" << (drawnNatively ? 1 : 0);
+                debugLog(out.str());
+            }
+        }
+        if (drawnNatively)
             continue;
 
         renderOutline(managedWindowBorderRect(managed, renderMonitor, useTargetGeometry), inactiveGradient, thickness, 0.95 * progress,
